@@ -76,7 +76,11 @@ ASGI_APPLICATION = "config.asgi.application"
 # Supabase / Render provide DATABASE_URL; fall back to individual env vars for local dev
 _DATABASE_URL = os.environ.get("DATABASE_URL")
 if _DATABASE_URL:
-    DATABASES = {"default": dj_database_url.parse(_DATABASE_URL, conn_max_age=600, ssl_require=True)}
+    DATABASES = {"default": dj_database_url.parse(
+        _DATABASE_URL,
+        conn_max_age=0,       # required for Supabase transaction pooler
+        ssl_require=True,
+    )}
 else:
     DATABASES = {
         "default": {
