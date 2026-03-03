@@ -134,8 +134,8 @@ SIMPLE_JWT = {
 # â”€â”€ CORS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _extra_origins = os.environ.get("EXTRA_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = list(filter(None, [
-    os.environ.get("FRONTEND_URL", "http://localhost:3000"),
-    *(_extra_origins.split(",") if _extra_origins else []),
+    os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/"),
+    *([o.rstrip("/") for o in _extra_origins.split(",") if o] if _extra_origins else []),
 ]))
 CORS_ALLOW_CREDENTIALS = True
 
