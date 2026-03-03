@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: pms-api
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --no-input && python manage.py migrate
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: DATABASE_URL
+        sync: false   # paste your Supabase connection string here in Render dashboard
+      - key: FRONTEND_URL
+        value: https://your-app.vercel.app
+      - key: JWT_ACCESS_TOKEN_LIFETIME_MINUTES
+        value: "480"
+      - key: JWT_REFRESH_TOKEN_LIFETIME_DAYS
+        value: "7"
