@@ -3,9 +3,9 @@ from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from apps.accounts.permissions import IsEntity, IsCEO, IsAnyAuthenticated
+from apps.accounts.permissions import IsEntity, IsAnyAuthenticated
 from apps.audit.models import AuditLog
-from .models import Submission
+from .models import Submission, KpiActual, SectionScore
 from .serializers import (
     SubmissionSerializer,
     SubmissionCreateSerializer,
@@ -40,14 +40,11 @@ class SubmissionListCreateView(generics.ListCreateAPIView):
         user = self.request.user
         qs   = Submission.objects.select_related("entity").prefetch_related("sections", "kpis")
 
+        # Entity users only see their own entity's submissions
         if user.role == "entity" and user.entity:
             return qs.filter(entity=user.entity)
 
-        # CEO: only submissions for entities linked to this CEO
-        if user.role == "ceo" and user.entity:
-            return qs.filter(entity=user.entity)
-
-        # admin / me: optional filter
+        # admin / me: optional filter by entity
         entity_id = self.request.query_params.get("entity")
         if entity_id:
             qs = qs.filter(entity_id=entity_id)
@@ -68,84 +65,92 @@ class SubmissionDetailView(generics.RetrieveUpdateDestroyAPIView):
         qs   = Submission.objects.select_related("entity").prefetch_related("sections", "kpis")
         if user.role == "entity" and user.entity:
             return qs.filter(entity=user.entity)
-        if user.role == "ceo" and user.entity:
-            return qs.filter(entity=user.entity)
         return qs
 
 
-# ---------------------------------------------------------------------------
-# CEO Approvals
-# ---------------------------------------------------------------------------
-
 class PendingApprovalsView(generics.ListAPIView):
-    """
-    CEO-scoped: returns only Pending submissions for the CEO's own entity.
-    This is the SERVER-SIDE fix for the CEO scoping bug.
-    """
+    """M&E consultants and admins see all pending approvals."""
     serializer_class   = SubmissionSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        qs   = Submission.objects.filter(
-            status=Submission.Status.PENDING
-        ).select_related("entity").prefetch_related("sections", "kpis")
-
-        # CEO can only approve submissions for their assigned entity
-        if user.role == "ceo" and user.entity:
-            return qs.filter(entity=user.entity)
-
-        # Admin / ME can see all pending
-        return qs
+        return (
+            Submission.objects
+            .filter(status=Submission.Status.PENDING)
+            .select_related("entity")
+            .prefetch_related("sections", "kpis")
+        )
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def approve_or_reject(request, pk):
-    """
-    CEO approves or rejects a submission.
-    Enforces entity scoping — a CEO can only act on their entity's submissions.
-    """
+    """M&E/Admin only. Accepts per-KPI ratings and saves them before approving/rejecting."""
     user = request.user
+    if user.role not in ("me", "admin"):
+        return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
     try:
-        qs = Submission.objects.select_related("entity")
-        if user.role == "ceo" and user.entity:
-            submission = qs.get(pk=pk, entity=user.entity)
-        else:
-            submission = qs.get(pk=pk)
+        submission = Submission.objects.prefetch_related("kpis").get(pk=pk)
     except Submission.DoesNotExist:
         return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
     serializer = ApprovalActionSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    action           = serializer.validated_data["action"]
+    reviewer_comment = serializer.validated_data["reviewer_comment"]
+    kpi_ratings      = serializer.validated_data.get("kpi_ratings", [])
 
-    action  = serializer.validated_data["action"]
-    comment = serializer.validated_data["comment"]
+    # Save per-KPI consultant / agreed ratings and recalculate weighted scores
+    if kpi_ratings:
+        rating_map = {r["kpi_id"]: r for r in kpi_ratings}
+        for kpi_actual in submission.kpis.all():
+            rating = rating_map.get(kpi_actual.kpi_id)
+            if rating:
+                kpi_actual.consultant_rating = rating["consultant_rating"]
+                kpi_actual.agreed_rating     = rating["agreed_rating"]
+                kpi_actual.recommendation    = rating.get("recommendation", "")
+                kpi_actual.weighted          = kpi_actual.agreed_rating * kpi_actual.weight
+                kpi_actual.save()
+
+        # Recompute section scores using new agreed ratings
+        submission.sections.all().delete()
+        area_groups: dict = {}
+        for kpi_actual in submission.kpis.all():
+            area_groups.setdefault(kpi_actual.area, []).append(kpi_actual)
+        for area, kpi_list in area_groups.items():
+            total_weight   = sum(k.weight for k in kpi_list)
+            total_weighted = sum(k.weighted for k in kpi_list)
+            score = round(total_weighted / total_weight, 2) if total_weight else 0
+            SectionScore.objects.create(
+                submission=submission, name=area,
+                score=score, weight=total_weight, weighted=total_weighted,
+            )
+
+        # Recompute overall score
+        all_kpis = list(submission.kpis.all())
+        total_w  = sum(k.weight for k in all_kpis)
+        total_ws = sum(k.weighted for k in all_kpis)
+        submission.overall_score = round(total_ws / total_w, 2) if total_w else 0.0
+
+    submission.reviewed_by      = user.name
+    submission.review_date      = date.today()
+    submission.reviewer_comment = reviewer_comment
 
     if action == "approve":
-        submission.status      = Submission.Status.APPROVED
-        submission.reviewed_by  = user.name
-        submission.review_date  = date.today()
-        submission.ceo_comment  = comment
+        submission.status = Submission.Status.APPROVED
         submission.save()
-        _log("Submission Approved", user, str(submission), comment)
+        _log("Submission Approved", user, str(submission), reviewer_comment)
         return Response({"detail": "Submission approved."})
     else:
-        submission.status      = Submission.Status.REJECTED
-        submission.reviewed_by  = user.name
-        submission.review_date  = date.today()
-        submission.ceo_comment  = comment
+        submission.status = Submission.Status.REJECTED
         submission.save()
-        _log("Submission Rejected", user, str(submission), comment)
+        _log("Submission Rejected", user, str(submission), reviewer_comment)
         return Response({"detail": "Submission rejected."})
 
 
-# ---------------------------------------------------------------------------
-# Reviewed (approved / rejected history) — CEO scoped
-# ---------------------------------------------------------------------------
-
 class ReviewedSubmissionsView(generics.ListAPIView):
-    """Returns submissions that have already been approved or rejected (CEO-scoped)."""
+    """Returns submissions that have already been approved or rejected."""
     serializer_class   = SubmissionSerializer
     permission_classes = [IsAuthenticated]
 
@@ -154,8 +159,7 @@ class ReviewedSubmissionsView(generics.ListAPIView):
         qs   = Submission.objects.filter(
             status__in=[Submission.Status.APPROVED, Submission.Status.REJECTED]
         ).select_related("entity").prefetch_related("sections", "kpis")
-
-        if user.role == "ceo" and user.entity:
+        if user.role == "entity" and user.entity:
             return qs.filter(entity=user.entity)
         return qs
 

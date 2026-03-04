@@ -1,13 +1,20 @@
-"use client"
+﻿"use client"
 
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -17,315 +24,608 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  CheckCircle2,
-  XCircle,
-  Clock,
-  ChevronRight,
-  FileText,
-  ArrowLeft,
-} from "lucide-react"
+import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import {
+  getPendingApprovals,
+  getReviewed,
+  approveSubmission,
+  rejectSubmission,
+  type Submission,
+  type KpiActual,
+  type KpiRating,
+} from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
 
-const pendingApprovals = [
-  {
-    id: "A-001",
-    entity: "Ministry of Health",
-    quarter: "Q2",
-    period: "2025/26",
-    submittedBy: "M. Shikongo",
-    submittedDate: "2026-01-14",
-    kpiCount: 10,
-    overallScore: 4.3,
-    sections: [
-      { name: "Outcomes", score: 4.5, weight: 25, weighted: 1.125 },
-      { name: "Outputs", score: 4.2, weight: 25, weighted: 1.05 },
-      { name: "Service Delivery", score: 4.1, weight: 20, weighted: 0.82 },
-      { name: "Management", score: 4.4, weight: 15, weighted: 0.66 },
-      { name: "Cross-Cutting", score: 4.3, weight: 15, weighted: 0.645 },
-    ],
-    kpis: [
-      { name: "Budget Execution Rate", area: "Outcomes", target: 95, actual: 92, variance: -3.2, rawScore: 5, weight: 5, weighted: 25 },
-      { name: "Revenue Collection Target", area: "Outcomes", target: 850, actual: 820, variance: -3.5, rawScore: 5, weight: 5, weighted: 25 },
-      { name: "Legislative Bills Processed", area: "Outputs", target: 12, actual: 11, variance: -8.3, rawScore: 4, weight: 4, weighted: 16 },
-      { name: "Policy Documents Developed", area: "Outputs", target: 8, actual: 7, variance: -12.5, rawScore: 3, weight: 4, weighted: 12 },
-      { name: "Service Delivery Index", area: "Service Delivery", target: 4.5, actual: 4.3, variance: -4.4, rawScore: 5, weight: 5, weighted: 25 },
-      { name: "Citizen Satisfaction Index", area: "Service Delivery", target: 4.0, actual: 3.8, variance: -5.0, rawScore: 5, weight: 4, weighted: 20 },
-      { name: "Staff Training Completion", area: "Management", target: 90, actual: 88, variance: -2.2, rawScore: 5, weight: 3, weighted: 15 },
-      { name: "ICT Systems Uptime", area: "Management", target: 99.5, actual: 99.1, variance: -0.4, rawScore: 5, weight: 3, weighted: 15 },
-      { name: "Audit Compliance Score", area: "Cross-Cutting", target: 4.5, actual: 4.2, variance: -6.7, rawScore: 4, weight: 4, weighted: 16 },
-      { name: "Gender Mainstreaming Score", area: "Cross-Cutting", target: 4.0, actual: 4.1, variance: 2.5, rawScore: 6, weight: 3, weighted: 18 },
-    ],
+// ---------------------------------------------------------------------------
+// Section configuration — mirrors the MDA Evaluation Scoring Template
+// ---------------------------------------------------------------------------
+
+const AREA_ORDER = ["Outcomes", "Outputs", "Service Delivery", "Management", "Cross-Cutting"] as const
+type AreaKey = typeof AREA_ORDER[number]
+
+interface SectionMeta {
+  letter: string
+  subLabel: string
+  sectionHeader?: string
+}
+
+const SECTION_META: Record<AreaKey, SectionMeta> = {
+  "Outcomes": {
+    letter: "1",
+    subLabel: "OUTCOMES \u2013 State all outcomes and outcome indicators contained in the Agency SPP.",
+    sectionHeader: "A\u00a0\u00a0\u00a0 DELIVERY OF MANDATES/OPERATIONS CONTAINED IN THE Agency Strategic Performance Plan (SPP)",
   },
-  {
-    id: "A-002",
-    entity: "Ministry of Education",
-    quarter: "Q1",
-    period: "2025/26",
-    submittedBy: "L. Amupanda",
-    submittedDate: "2025-10-20",
-    kpiCount: 8,
-    overallScore: 3.9,
-    sections: [
-      { name: "Outcomes", score: 4.0, weight: 25, weighted: 1.0 },
-      { name: "Outputs", score: 3.8, weight: 25, weighted: 0.95 },
-      { name: "Service Delivery", score: 3.7, weight: 20, weighted: 0.74 },
-      { name: "Management", score: 4.1, weight: 15, weighted: 0.615 },
-      { name: "Cross-Cutting", score: 3.9, weight: 15, weighted: 0.585 },
-    ],
-    kpis: [],
+  "Outputs": {
+    letter: "2",
+    subLabel: "OUTPUTS \u2013 State all major outputs contained in the Agency SPP.",
   },
-]
+  "Service Delivery": {
+    letter: "B",
+    subLabel: "SERVICE DELIVERY STANDARDS",
+    sectionHeader: "B\u00a0\u00a0\u00a0 SERVICE DELIVERY STANDARDS",
+  },
+  "Management": {
+    letter: "C",
+    subLabel: "MANAGEMENT OF RESOURCES AND ORGANIZATIONAL DEVELOPMENT",
+    sectionHeader: "C\u00a0\u00a0\u00a0 MANAGEMENT OF RESOURCES AND ORGANIZATIONAL DEVELOPMENT",
+  },
+  "Cross-Cutting": {
+    letter: "D",
+    subLabel: "CROSS-CUTTING GOVERNMENT PRIORITIES",
+    sectionHeader: "D\u00a0\u00a0\u00a0 CROSS-CUTTING GOVERNMENT PRIORITIES",
+  },
+}
 
-const completedApprovals = [
-  { entity: "Ministry of Finance", quarter: "Q1", decision: "Approved", score: 4.6, decidedBy: "CEO", date: "2025-10-25" },
-  { entity: "Ministry of Finance", quarter: "Q2", decision: "Approved", score: 4.5, decidedBy: "CEO", date: "2026-01-20" },
-  { entity: "Ministry of Health", quarter: "Q1", decision: "Approved", score: 4.2, decidedBy: "CEO", date: "2025-10-28" },
-  { entity: "Ministry of Transport", quarter: "Q1", decision: "Rejected", score: 3.1, decidedBy: "CEO", date: "2025-11-02" },
-]
+const SUMMARY_META: Record<AreaKey, { section: string; heading: string }> = {
+  "Outcomes":         { section: "A1", heading: "Outcomes" },
+  "Outputs":          { section: "A2", heading: "Outputs" },
+  "Service Delivery": { section: "B",  heading: "Service Delivery Standards" },
+  "Management":       { section: "C",  heading: "Management of Resources and Organisational Development" },
+  "Cross-Cutting":    { section: "D",  heading: "Cross-Cutting Government Priorities" },
+}
 
-export default function ApprovalsPage() {
-  const [selectedApproval, setSelectedApproval] = useState<typeof pendingApprovals[0] | null>(null)
-  const [comment, setComment] = useState("")
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  if (selectedApproval) {
-    return (
-      <>
-        <Header title="Review Submission" />
-        <div className="flex-1 overflow-auto">
-          <div className="p-4 lg:p-6 space-y-6">
-            <Button
-              variant="ghost"
-              className="gap-2 text-muted-foreground -ml-2"
-              onClick={() => setSelectedApproval(null)}
-            >
-              <ArrowLeft className="size-4" />
-              Back to Approvals
-            </Button>
+function scoreColor(s: number | string | null) {
+  const n = typeof s === "string" ? parseFloat(s) : s
+  if (n === null || isNaN(n as number)) return ""
+  if ((n as number) >= 5) return "text-green-600"
+  if ((n as number) >= 3) return "text-amber-600"
+  return "text-red-600"
+}
 
-            {/* Header info */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-foreground">{selectedApproval.entity}</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {selectedApproval.quarter} {selectedApproval.period} -- Submitted by {selectedApproval.submittedBy} on {selectedApproval.submittedDate}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Overall Score</p>
-                  <p className="text-3xl font-bold text-primary">{selectedApproval.overallScore}</p>
-                </div>
-                <Badge className={cn(
-                  "text-sm py-1 px-3",
-                  selectedApproval.overallScore >= 4 ? "bg-success/10 text-success" :
-                  selectedApproval.overallScore >= 3 ? "bg-warning/10 text-warning-foreground" :
-                  "bg-destructive/10 text-destructive"
-                )}>
-                  {selectedApproval.overallScore >= 5 ? "Excellent" :
-                   selectedApproval.overallScore >= 4 ? "Good" :
-                   selectedApproval.overallScore >= 3 ? "Satisfactory" : "Needs Improvement"}
-                </Badge>
-              </div>
-            </div>
+function statusBadge(s: string) {
+  const m: Record<string, string> = {
+    Approved: "bg-green-100 text-green-800", Rejected: "bg-red-100 text-red-800",
+    Pending: "bg-amber-100 text-amber-800", "Under Review": "bg-blue-100 text-blue-800",
+    Draft: "bg-gray-100 text-gray-700",
+  }
+  return m[s] ?? "bg-gray-100 text-gray-700"
+}
 
-            {/* Section Totals */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">Section Performance</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-3 sm:grid-cols-5">
-                  {selectedApproval.sections.map((section) => (
-                    <div key={section.name} className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                      <p className="text-xs text-muted-foreground">{section.name}</p>
-                      <p className="text-lg font-bold text-foreground mt-1">{section.score}</p>
-                      <p className="text-[10px] text-muted-foreground">Weight: {section.weight}%</p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+// ---------------------------------------------------------------------------
+// Rating state per KPI
+// ---------------------------------------------------------------------------
 
-            {/* KPI Detail Table */}
-            {selectedApproval.kpis.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold">KPI Breakdown</CardTitle>
-                </CardHeader>
-                <CardContent className="px-0 pb-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>KPI</TableHead>
-                        <TableHead>Area</TableHead>
-                        <TableHead className="text-center">Target</TableHead>
-                        <TableHead className="text-center">Actual</TableHead>
-                        <TableHead className="text-center">Variance</TableHead>
-                        <TableHead className="text-center">Raw Score</TableHead>
-                        <TableHead className="text-center">Weight</TableHead>
-                        <TableHead className="text-center">Weighted</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedApproval.kpis.map((kpi, i) => (
-                        <TableRow key={i}>
-                          <TableCell className="font-medium text-foreground">{kpi.name}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{kpi.area}</TableCell>
-                          <TableCell className="text-center tabular-nums text-muted-foreground">{kpi.target}</TableCell>
-                          <TableCell className="text-center tabular-nums font-medium text-foreground">{kpi.actual}</TableCell>
-                          <TableCell className="text-center">
-                            <span className={cn(
-                              "text-sm font-mono tabular-nums",
-                              kpi.variance >= 0 ? "text-success" : kpi.variance >= -10 ? "text-warning-foreground" : "text-destructive"
-                            )}>
-                              {kpi.variance >= 0 ? "+" : ""}{kpi.variance.toFixed(1)}%
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Badge className={cn(
-                              "font-mono tabular-nums",
-                              kpi.rawScore >= 5 ? "bg-success/10 text-success" :
-                              kpi.rawScore >= 3 ? "bg-warning/10 text-warning-foreground" :
-                              "bg-destructive/10 text-destructive"
-                            )}>
-                              {kpi.rawScore}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-center tabular-nums text-muted-foreground">{kpi.weight}</TableCell>
-                          <TableCell className="text-center font-semibold tabular-nums text-foreground">{kpi.weighted}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )}
+interface RatingState {
+  consultant_rating: string
+  agreed_rating: string
+  recommendation: string
+}
 
-            {/* Comment & Decision */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">Review Decision</CardTitle>
-                <CardDescription>Provide your review comments and decision below.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Comments</Label>
-                  <Textarea
-                    placeholder="Enter your review comments, observations, and recommendations..."
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    className="min-h-[100px]"
-                  />
-                </div>
-                <Separator />
-                <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <Button variant="outline" className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/5">
-                    <XCircle className="size-4" />
-                    Reject Submission
-                  </Button>
-                  <Button className="gap-2 bg-success text-success-foreground hover:bg-success/90">
-                    <CheckCircle2 className="size-4" />
-                    Approve Submission
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </>
+interface PlanningState {
+  unit: string
+  weight: string
+  prev_year_performance: string
+  year_target: string
+  allowable_variance: string
+  period_target: string
+}
+
+// ---------------------------------------------------------------------------
+// MDA IRBM Evaluation Scoresheet — one per submission
+// ---------------------------------------------------------------------------
+
+function MdaScoresheet({
+  submission,
+  onReviewed,
+}: {
+  submission: Submission
+  onReviewed: () => void
+}) {
+  const { user } = useAuth()
+  const [open,            setOpen]            = useState(false)
+  const [consultantName,  setConsultantName]  = useState(user?.name ?? "")
+  const [ratings,         setRatings]         = useState<Record<number, RatingState>>(() =>
+    Object.fromEntries(
+      submission.kpis.map(k => [
+        k.id,
+        {
+          consultant_rating: k.consultant_rating ? String(k.consultant_rating) : "",
+          agreed_rating:     k.agreed_rating     ? String(k.agreed_rating)     : "",
+          recommendation:    k.recommendation    ?? "",
+        },
+      ])
     )
+  )
+  const [reviewerComment, setReviewerComment] = useState("")
+  const [submitting,      setSubmitting]      = useState(false)
+  const [error,           setError]           = useState<string | null>(null)
+  const [planning, setPlanning] = useState<Record<number, PlanningState>>(() =>
+    Object.fromEntries(
+      submission.kpis.map(k => [k.id, {
+        unit:                  k.unit,
+        weight:                String(k.weight),
+        prev_year_performance: k.prev_year_performance != null ? String(k.prev_year_performance) : "",
+        year_target:           k.year_target != null ? String(k.year_target) : "",
+        allowable_variance:    k.allowable_variance != null ? String(k.allowable_variance) : "",
+        period_target:         String(k.period_target),
+      }])
+    )
+  )
+
+  const setRating = (id: number, field: keyof RatingState, v: string) =>
+    setRatings(prev => ({ ...prev, [id]: { ...prev[id], [field]: v } }))
+  const setPlann  = (id: number, field: keyof PlanningState, v: string) =>
+    setPlanning(prev => ({ ...prev, [id]: { ...prev[id], [field]: v } }))
+
+  // Group KPIs by area
+  const grouped = useMemo(() => {
+    const g: Record<string, KpiActual[]> = {}
+    for (const k of submission.kpis) {
+      if (!g[k.area]) g[k.area] = []
+      g[k.area].push(k)
+    }
+    return g
+  }, [submission.kpis])
+
+  // Per-area and grand totals using agreed (fallback consultant, then self) rating
+  const summaryByArea = useMemo(() => {
+    const map: Record<string, { totalWeight: number; totalWeighted: number }> = {}
+    for (const k of submission.kpis) {
+      const r  = ratings[k.id]
+      const ar = parseFloat(r?.agreed_rating) || parseFloat(r?.consultant_rating)
+              || k.agreed_rating || k.consultant_rating || k.self_rating || 0
+      const pw = parseFloat(planning[k.id]?.weight) || k.weight
+      if (!map[k.area]) map[k.area] = { totalWeight: 0, totalWeighted: 0 }
+      map[k.area].totalWeight   += pw
+      map[k.area].totalWeighted += ar * pw
+    }
+    return map
+  }, [ratings, planning, submission.kpis])
+
+  const totalWeight   = Object.values(summaryByArea).reduce((s, v) => s + v.totalWeight,   0)
+  const totalWeighted = Object.values(summaryByArea).reduce((s, v) => s + v.totalWeighted, 0)
+  const liveScore     = totalWeight > 0 ? (totalWeighted / totalWeight).toFixed(2) : "\u2014"
+
+  const kpiRatings: KpiRating[] = submission.kpis.map(k => ({
+    kpi_id:            k.kpi_id,
+    consultant_rating: parseFloat(ratings[k.id]?.consultant_rating) || 0,
+    agreed_rating:     parseFloat(ratings[k.id]?.agreed_rating)     || 0,
+    recommendation:    ratings[k.id]?.recommendation ?? "",
+  }))
+
+  const handleAction = async (action: "approve" | "reject") => {
+    setSubmitting(true); setError(null)
+    try {
+      const payload = { action, reviewer_comment: reviewerComment, kpi_ratings: kpiRatings }
+      if (action === "approve") await approveSubmission(submission.id, payload)
+      else                       await rejectSubmission(submission.id, payload)
+      onReviewed()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action failed.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
+    <Card className="border-border/60">
+      {/* Collapsible header */}
+      <CardHeader
+        className="cursor-pointer select-none pb-3 flex flex-row items-start justify-between gap-2"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          {open ? <ChevronDown className="size-4 shrink-0 mt-0.5" /> : <ChevronRight className="size-4 shrink-0 mt-0.5" />}
+          <span className="font-semibold text-sm">{submission.entity_name}</span>
+          <Badge variant="outline">{submission.quarter}</Badge>
+          <span className="text-xs text-muted-foreground">{submission.period}</span>
+        </div>
+        <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2 text-xs text-muted-foreground shrink-0">
+          <span className="text-right">
+            Submitted by <strong>{submission.submitted_by}</strong> on {submission.submitted_date}
+          </span>
+          <span className={cn("rounded-full px-2 py-0.5 font-medium text-[11px] whitespace-nowrap", statusBadge(submission.status))}>
+            {submission.status}
+          </span>
+        </div>
+      </CardHeader>
+
+      {open && (
+        <CardContent className="space-y-6 pt-0">
+
+          {/* MDA header block */}
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-bold text-center uppercase tracking-wide">
+                MDA IRBM Evaluation Scoresheet
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Entity Name</Label>
+                  <p className="text-sm font-medium border rounded-md px-3 py-2 bg-muted/30">{submission.entity_name}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Evaluation Period</Label>
+                  <p className="text-sm font-medium border rounded-md px-3 py-2 bg-muted/30">
+                    {submission.quarter} &mdash; {submission.period}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Year</Label>
+                  <p className="text-sm font-medium border rounded-md px-3 py-2 bg-muted/30">2025/26</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Evaluatee Designation (CEO/DG/GM/MD)</Label>
+                  <p className="text-sm font-medium border rounded-md px-3 py-2 bg-muted/30">{submission.submitted_by || "\u2014"}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">State Enterprise / Parastatal</Label>
+                  <p className="text-sm font-medium border rounded-md px-3 py-2 bg-muted/30">{submission.entity_name}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Consultant</Label>
+                  <Input
+                    value={consultantName}
+                    onChange={e => setConsultantName(e.target.value)}
+                    placeholder="Consultant name"
+                    className="h-9 bg-background"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Rating scale legend */}
+          <Card className="bg-muted/30">
+            <CardContent className="py-3 px-4">
+              <p className="text-[11px] font-bold uppercase tracking-wide mb-2">Rating Scale</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 text-[11px]">
+                {[
+                  { r: 6, d: "Clearly Exceeds Set Targets \u2013 beyond variance" },
+                  { r: 5, d: "Performance Above Set Targets \u2013 but within variance" },
+                  { r: 4, d: "Met All Agreed Set Targets" },
+                  { r: 3, d: "Performance Below Set Targets \u2013 but within variance" },
+                  { r: 2, d: "Performance Below Set Targets \u2013 below variance" },
+                  { r: 1, d: "Nothing was accomplished" },
+                ].map(({ r, d }) => (
+                  <div key={r} className="flex gap-1.5 items-start">
+                    <span className={cn("font-bold shrink-0 text-sm", scoreColor(r))}>{r}</span>
+                    <span className="text-muted-foreground leading-tight">{d}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Main scoresheet table */}
+          <Card>
+            <CardContent className="px-0 pb-0">
+              <div className="overflow-x-auto">
+                <Table className="text-xs min-w-[1400px]">
+                  <TableHeader>
+                    <TableRow className="bg-muted/60">
+                      <TableHead className="w-8 text-center font-bold border-r" />
+                      <TableHead className="min-w-[220px] font-bold">PERFORMANCE AREA/CATEGORY</TableHead>
+                      <TableHead className="w-20 text-center font-bold">Measurement Unit</TableHead>
+                      <TableHead className="w-16 text-center font-bold">Weightage</TableHead>
+                      <TableHead className="w-24 text-center font-bold">Performance Previous Year</TableHead>
+                      <TableHead className="w-24 text-center font-bold">Year Target</TableHead>
+                      <TableHead className="w-20 text-center font-bold">Allowable Variance</TableHead>
+                      <TableHead className="w-20 text-center font-bold">Period Target</TableHead>
+                      <TableHead className="w-24 text-center font-bold text-muted-foreground">Period Actual</TableHead>
+                      <TableHead className="w-20 text-center font-bold text-muted-foreground">Self-Rating</TableHead>
+                      <TableHead className="w-20 text-center font-bold text-primary">Consultant Rating ✏</TableHead>
+                      <TableHead className="w-20 text-center font-bold text-primary">Agreed Rating ✏</TableHead>
+                      <TableHead className="w-28 text-center font-bold">Weighted Score</TableHead>
+                      <TableHead className="min-w-[140px] font-bold text-muted-foreground">Evaluatee Comments</TableHead>
+                      <TableHead className="min-w-[150px] font-bold text-primary">Recommendations ✏</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {AREA_ORDER.map(area => {
+                      const rows = grouped[area]
+                      if (!rows?.length) return null
+                      const meta     = SECTION_META[area]
+                      const summary  = summaryByArea[area] ?? { totalWeight: 0, totalWeighted: 0 }
+                      const secScore = summary.totalWeight > 0
+                        ? (summary.totalWeighted / summary.totalWeight).toFixed(2)
+                        : "\u2014"
+                      return [
+                        /* Section header */
+                        meta.sectionHeader && (
+                          <TableRow key={`hdr-${area}`} className="bg-primary/10 border-t-2 border-primary/20">
+                            <TableCell className="font-bold text-center text-primary py-2 border-r" />
+                            <TableCell colSpan={14} className="py-2 px-3 font-bold text-xs uppercase tracking-wide text-primary">
+                              {meta.sectionHeader}
+                            </TableCell>
+                          </TableRow>
+                        ),
+                        /* Sub-section row */
+                        <TableRow key={`sub-${area}`} className="bg-muted/30">
+                          <TableCell className="font-bold text-center border-r text-muted-foreground">{meta.letter}</TableCell>
+                          <TableCell colSpan={14} className="font-semibold italic text-muted-foreground py-1.5">{meta.subLabel}</TableCell>
+                        </TableRow>,
+                        /* KPI rows */
+                        ...rows.map((kpi, idx) => {
+                          const r   = ratings[kpi.id] ?? { consultant_rating: "", agreed_rating: "", recommendation: "" }
+                          const cr  = parseFloat(r.consultant_rating) || kpi.consultant_rating || null
+                          const ar  = parseFloat(r.agreed_rating)     || kpi.agreed_rating     || null
+                          const eff = ar ?? cr ?? kpi.self_rating ?? null
+                          const pw  = parseFloat(planning[kpi.id]?.weight) || kpi.weight
+                          const wtd = eff !== null ? (eff * pw).toFixed(1) : "\u2014"
+                          return (
+                            <TableRow key={kpi.id} className="hover:bg-muted/20">
+                              <TableCell className="text-center text-muted-foreground border-r">{idx + 1}</TableCell>
+                              <TableCell className="font-medium">{kpi.name}</TableCell>
+                              <TableCell className="px-1">
+                                <Input value={planning[kpi.id]?.unit ?? kpi.unit} onChange={e => setPlann(kpi.id, "unit", e.target.value)} className="h-7 w-16 text-xs text-center" placeholder="Unit" />
+                              </TableCell>
+                              <TableCell className="px-1">
+                                <Input type="number" value={planning[kpi.id]?.weight ?? String(kpi.weight)} onChange={e => setPlann(kpi.id, "weight", e.target.value)} className="h-7 w-12 text-xs text-center tabular-nums" min={0} step={0.01} />
+                              </TableCell>
+                              <TableCell className="px-1">
+                                <Input type="number" value={planning[kpi.id]?.prev_year_performance ?? ""} onChange={e => setPlann(kpi.id, "prev_year_performance", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" placeholder="\u2014" />
+                              </TableCell>
+                              <TableCell className="px-1">
+                                <Input type="number" value={planning[kpi.id]?.year_target ?? ""} onChange={e => setPlann(kpi.id, "year_target", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" min={0} />
+                              </TableCell>
+                              <TableCell className="px-1">
+                                <div className="flex items-center gap-0.5 justify-center">
+                                  <span className="text-[10px] text-muted-foreground">±</span>
+                                  <Input type="number" value={planning[kpi.id]?.allowable_variance ?? ""} onChange={e => setPlann(kpi.id, "allowable_variance", e.target.value)} className="h-7 w-12 text-xs text-center tabular-nums" min={0} />
+                                  <span className="text-[10px] text-muted-foreground">%</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="px-1">
+                                <Input type="number" value={planning[kpi.id]?.period_target ?? ""} onChange={e => setPlann(kpi.id, "period_target", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" min={0} />
+                              </TableCell>
+                              {/* Entity-submitted — read-only */}
+                              <TableCell className="text-center tabular-nums font-semibold bg-muted/5">
+                                {kpi.actual.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="text-center bg-muted/5">
+                                <span className={cn("font-medium tabular-nums", scoreColor(kpi.self_rating))}>
+                                  {kpi.self_rating ?? "\u2014"}
+                                </span>
+                              </TableCell>
+                              {/* Consultant Rating ✏ */}
+                              <TableCell className="px-1">
+                                <Select value={r.consultant_rating} onValueChange={v => setRating(kpi.id, "consultant_rating", v)}>
+                                  <SelectTrigger className="h-7 w-16 text-xs">
+                                    <SelectValue placeholder={kpi.consultant_rating ? String(kpi.consultant_rating) : "\u2014"} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {[1, 2, 3, 4, 5, 6].map(n => (
+                                      <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              {/* Agreed Rating ✏ */}
+                              <TableCell className="px-1">
+                                <Select value={r.agreed_rating} onValueChange={v => setRating(kpi.id, "agreed_rating", v)}>
+                                  <SelectTrigger className="h-7 w-16 text-xs">
+                                    <SelectValue placeholder={kpi.agreed_rating ? String(kpi.agreed_rating) : "\u2014"} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {[1, 2, 3, 4, 5, 6].map(n => (
+                                      <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell className="text-center tabular-nums font-semibold">
+                                <span className={cn(scoreColor(eff))}>{wtd}</span>
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground bg-muted/5">
+                                {kpi.evaluatee_comment || ""}
+                              </TableCell>
+                              {/* Recommendation ✏ */}
+                              <TableCell className="px-1">
+                                <Input
+                                  value={r.recommendation}
+                                  onChange={e => setRating(kpi.id, "recommendation", e.target.value)}
+                                  placeholder="Enter recommendation..."
+                                  className="h-7 min-w-[130px] text-xs"
+                                />
+                              </TableCell>
+                            </TableRow>
+                          )
+                        }),
+                        /* Weighted sub-total */
+                        <TableRow key={`subtotal-${area}`} className="bg-muted/40 border-b-2 border-muted">
+                          <TableCell className="border-r" />
+                          <TableCell className="font-bold uppercase tracking-wide text-xs py-2">Weighted Sub Total</TableCell>
+                          <TableCell />
+                          <TableCell className="text-center font-bold">{summary.totalWeight}</TableCell>
+                          <TableCell colSpan={7} />
+                          <TableCell className="text-center font-bold tabular-nums">
+                            <span className={cn(scoreColor(secScore))}>{secScore}</span>
+                          </TableCell>
+                          <TableCell colSpan={2} />
+                        </TableRow>,
+                      ]
+                    })}
+                    {/* Grand total */}
+                    <TableRow className="bg-primary/5 font-bold text-sm border-t-2 border-primary/30">
+                      <TableCell className="border-r" />
+                      <TableCell className="uppercase tracking-wide py-2">Grand Totals</TableCell>
+                      <TableCell />
+                      <TableCell className="text-center">{totalWeight}</TableCell>
+                      <TableCell colSpan={7} />
+                      <TableCell className="text-center tabular-nums">
+                        <span className={cn(scoreColor(liveScore))}>{liveScore}</span>
+                      </TableCell>
+                      <TableCell colSpan={2} />
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Summary Scores table */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold uppercase tracking-wide">Summary Scores</CardTitle>
+              <p className="text-[11px] text-muted-foreground">Use the rating scale above for guidance in allocating raw scores.</p>
+            </CardHeader>
+            <CardContent>
+              <Table className="text-xs">
+                <TableHeader>
+                  <TableRow className="bg-muted/60">
+                    <TableHead className="font-bold w-16">SECTION</TableHead>
+                    <TableHead className="font-bold">HEADING</TableHead>
+                    <TableHead className="text-center font-bold">Weightage</TableHead>
+                    <TableHead className="text-center font-bold">Weighted Score</TableHead>
+                    <TableHead className="text-center font-bold">Score</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {AREA_ORDER.map(area => {
+                    const meta = SUMMARY_META[area]
+                    const s    = summaryByArea[area] ?? { totalWeight: 0, totalWeighted: 0 }
+                    const sc   = s.totalWeight > 0 ? (s.totalWeighted / s.totalWeight).toFixed(2) : "\u2014"
+                    return (
+                      <TableRow key={area}>
+                        <TableCell className="font-semibold">{meta.section}</TableCell>
+                        <TableCell>{meta.heading}</TableCell>
+                        <TableCell className="text-center tabular-nums">{s.totalWeight || "\u2014"}</TableCell>
+                        <TableCell className="text-center tabular-nums">{s.totalWeighted > 0 ? s.totalWeighted.toFixed(2) : "\u2014"}</TableCell>
+                        <TableCell className="text-center font-bold tabular-nums">
+                          <span className={cn(scoreColor(sc))}>{sc}</span>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                  <TableRow className="bg-primary/5 font-bold">
+                    <TableCell>TOTAL</TableCell>
+                    <TableCell />
+                    <TableCell className="text-center">{totalWeight || "\u2014"}</TableCell>
+                    <TableCell className="text-center tabular-nums">{totalWeighted > 0 ? totalWeighted.toFixed(2) : "\u2014"}</TableCell>
+                    <TableCell className="text-center">
+                      <span className={cn(scoreColor(liveScore))}>{liveScore}</span>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Overall Reviewer Comment */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Overall Reviewer Comment</Label>
+            <Textarea
+              value={reviewerComment}
+              onChange={e => setReviewerComment(e.target.value)}
+              placeholder="Summarise the evaluation, note key achievements or concerns..."
+              rows={3}
+              className="text-sm resize-none"
+            />
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          {/* Actions */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button disabled={submitting} onClick={() => handleAction("approve")}
+              className="gap-2 bg-green-700 hover:bg-green-800 text-white w-full sm:w-auto">
+              {submitting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+              Approve
+            </Button>
+            <Button disabled={submitting} variant="destructive" onClick={() => handleAction("reject")}
+              className="gap-2 w-full sm:w-auto">
+              {submitting ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
+              Reject
+            </Button>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+export default function ApprovalsPage() {
+  const [pending,  setPending]  = useState<Submission[]>([])
+  const [reviewed, setReviewed] = useState<Submission[]>([])
+  const [loading,  setLoading]  = useState(true)
+
+  const load = () => {
+    setLoading(true)
+    Promise.all([getPendingApprovals(), getReviewed()])
+      .then(([p, r]) => {
+        setPending(Array.isArray(p) ? p : [])
+        setReviewed(Array.isArray(r) ? r : [])
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  return (
     <>
-      <Header title="Approvals" />
+      <Header title="MDA Evaluations" />
       <div className="flex-1 overflow-auto">
-        <div className="p-4 lg:p-6 space-y-6">
+        <div className="p-4 lg:p-6 space-y-4">
           <Tabs defaultValue="pending">
             <TabsList>
-              <TabsTrigger value="pending" className="gap-2">
-                <Clock className="size-3.5" />
-                Pending ({pendingApprovals.length})
+              <TabsTrigger value="pending">
+                Pending Evaluation
+                {pending.length > 0 && (
+                  <span className="ml-2 rounded-full bg-amber-500 text-white text-[10px] px-1.5 py-0.5 font-bold leading-none">
+                    {pending.length}
+                  </span>
+                )}
               </TabsTrigger>
-              <TabsTrigger value="completed" className="gap-2">
-                <CheckCircle2 className="size-3.5" />
-                Completed ({completedApprovals.length})
-              </TabsTrigger>
+              <TabsTrigger value="reviewed">Completed</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="pending" className="mt-6 space-y-4">
-              {pendingApprovals.map((approval) => (
-                <Card
-                  key={approval.id}
-                  className="cursor-pointer transition-all hover:shadow-md hover:border-primary/30"
-                  onClick={() => setSelectedApproval(approval)}
-                >
-                  <CardContent className="p-5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10">
-                          <FileText className="size-5 text-primary" />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-foreground">{approval.entity}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {approval.quarter} {approval.period} -- {approval.kpiCount} KPIs -- Submitted {approval.submittedDate}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right hidden sm:block">
-                          <p className="text-xs text-muted-foreground">Score</p>
-                          <p className="text-xl font-bold text-primary">{approval.overallScore}</p>
-                        </div>
-                        <Badge className="bg-warning/10 text-warning-foreground">
-                          Pending Review
-                        </Badge>
-                        <ChevronRight className="size-5 text-muted-foreground" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+            {/* PENDING */}
+            <TabsContent value="pending" className="space-y-4 mt-6">
+              {loading ? (
+                <div className="flex items-center justify-center py-24">
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                  <span className="ml-3 text-sm text-muted-foreground">Loading submissions...</span>
+                </div>
+              ) : pending.length === 0 ? (
+                <div className="text-center py-24 text-muted-foreground text-sm">
+                  <CheckCircle2 className="size-8 mx-auto mb-3 opacity-30" />
+                  All caught up! No submissions pending evaluation.
+                </div>
+              ) : (
+                pending.map(s => <MdaScoresheet key={s.id} submission={s} onReviewed={load} />)
+              )}
             </TabsContent>
 
-            <TabsContent value="completed" className="mt-6">
-              <Card>
-                <CardContent className="px-0 pb-0 pt-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Entity</TableHead>
-                        <TableHead>Quarter</TableHead>
-                        <TableHead>Decision</TableHead>
-                        <TableHead className="text-right">Score</TableHead>
-                        <TableHead>Decided By</TableHead>
-                        <TableHead>Date</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {completedApprovals.map((item, i) => (
-                        <TableRow key={i}>
-                          <TableCell className="font-medium text-foreground">{item.entity}</TableCell>
-                          <TableCell className="text-muted-foreground">{item.quarter}</TableCell>
-                          <TableCell>
-                            <Badge className={cn(
-                              "text-xs",
-                              item.decision === "Approved" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-                            )}>
-                              {item.decision}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right font-semibold tabular-nums text-foreground">{item.score}</TableCell>
-                          <TableCell className="text-muted-foreground">{item.decidedBy}</TableCell>
-                          <TableCell className="text-muted-foreground">{item.date}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+            {/* COMPLETED */}
+            <TabsContent value="reviewed" className="mt-6 space-y-4">
+              {reviewed.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-10 text-center">No completed evaluations yet.</p>
+              ) : (
+                reviewed.map(s => <MdaScoresheet key={s.id} submission={s} onReviewed={load} />)
+              )}
             </TabsContent>
           </Tabs>
         </div>

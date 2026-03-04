@@ -18,11 +18,11 @@ import {
 export function Header({ title }: { title: string }) {
   return (
     <header className="flex h-14 items-center gap-4 border-b border-border bg-card px-4 lg:px-6">
-      <SidebarTrigger className="text-muted-foreground" />
-      <Separator orientation="vertical" className="h-5" />
-      <h1 className="text-base font-semibold text-foreground">{title}</h1>
+      <SidebarTrigger className="text-muted-foreground shrink-0" />
+      <Separator orientation="vertical" className="h-5 shrink-0" />
+      <h1 className="truncate min-w-0 flex-1 text-sm sm:text-base font-semibold text-foreground">{title}</h1>
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-3 shrink-0">
         <div className="relative hidden md:block">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input

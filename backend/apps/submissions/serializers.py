@@ -13,8 +13,16 @@ class KpiActualSerializer(serializers.ModelSerializer):
         model  = KpiActual
         fields = (
             "id", "kpi_id", "name", "area", "unit",
-            "target", "actual", "variance", "raw_score",
-            "weight", "weighted", "comment",
+            # Consultant-defined (read-only after creation)
+            "year_target", "period_target", "allowable_variance", "prev_year_performance",
+            # Entity-supplied
+            "actual", "variance",
+            # Ratings
+            "self_rating", "consultant_rating", "agreed_rating",
+            # Scoring
+            "raw_score", "weight", "weighted",
+            # Comments
+            "evaluatee_comment", "recommendation",
         )
 
 
@@ -29,7 +37,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "id", "entity", "entity_name", "quarter", "period",
             "submitted_by", "submitted_date", "kpi_count",
             "overall_score", "status", "reviewed_by", "review_date",
-            "ceo_comment", "overall_comment", "created_at", "updated_at",
+            "reviewer_comment", "overall_comment", "created_at", "updated_at",
             "sections", "kpis",
         )
         read_only_fields = (
@@ -41,9 +49,24 @@ class SubmissionSerializer(serializers.ModelSerializer):
         return obj.entity.name if obj.entity else None
 
 
+# ---- per-KPI input from the entity at submission time ----
+class KpiActualInputSerializer(serializers.Serializer):
+    kpi_id             = serializers.IntegerField()
+    name               = serializers.CharField(max_length=200)
+    area               = serializers.CharField(max_length=50)
+    unit               = serializers.CharField(max_length=20)
+    year_target        = serializers.FloatField()
+    period_target      = serializers.FloatField()
+    allowable_variance = serializers.FloatField(default=5.0)
+    actual             = serializers.FloatField()
+    self_rating        = serializers.IntegerField(min_value=1, max_value=6, required=False, allow_null=True)
+    weight             = serializers.IntegerField(min_value=0)
+    evaluatee_comment  = serializers.CharField(allow_blank=True, default="")
+
+
 class SubmissionCreateSerializer(serializers.ModelSerializer):
     """Used for creating a new submission with nested KPI actuals."""
-    kpis = KpiActualSerializer(many=True)
+    kpis = KpiActualInputSerializer(many=True)
 
     class Meta:
         model  = Submission
@@ -54,20 +77,53 @@ class SubmissionCreateSerializer(serializers.ModelSerializer):
         )
 
     def create(self, validated_data):
-        kpis_data    = validated_data.pop("kpis")
-        submission   = Submission.objects.create(**validated_data)
+        kpis_data  = validated_data.pop("kpis")
+        submission = Submission.objects.create(**validated_data)
 
-        # Build section scores by area
         area_groups: dict = {}
         for k in kpis_data:
-            KpiActual.objects.create(submission=submission, **k)
-            area = k["area"]
-            area_groups.setdefault(area, []).append(k)
+            variance    = KpiActual.calculate_variance(k["period_target"], k["actual"])
+            raw_score   = KpiActual.calculate_raw_score(variance)
+            self_rating = k.get("self_rating") or raw_score
+            weighted    = self_rating * k["weight"]
+
+            # Auto-populate prev_year_performance from last approved KpiActual for same entity+kpi
+            last_approved = (
+                KpiActual.objects
+                .filter(
+                    kpi_id=k["kpi_id"],
+                    submission__entity=submission.entity,
+                    submission__status=Submission.Status.APPROVED,
+                )
+                .order_by("-submission__submitted_date")
+                .first()
+            )
+            prev_year = last_approved.actual if last_approved else None
+
+            KpiActual.objects.create(
+                submission=submission,
+                kpi_id=k["kpi_id"],
+                name=k["name"],
+                area=k["area"],
+                unit=k["unit"],
+                year_target=k["year_target"],
+                period_target=k["period_target"],
+                allowable_variance=k["allowable_variance"],
+                prev_year_performance=prev_year,
+                actual=k["actual"],
+                variance=variance,
+                raw_score=raw_score,
+                self_rating=self_rating,
+                weight=k["weight"],
+                weighted=weighted,
+                evaluatee_comment=k.get("evaluatee_comment", ""),
+            )
+            area_groups.setdefault(k["area"], []).append({"weight": k["weight"], "weighted": weighted})
 
         for area, kpi_list in area_groups.items():
-            total_weight  = sum(k["weight"] for k in kpi_list)
+            total_weight   = sum(k["weight"] for k in kpi_list)
             total_weighted = sum(k["weighted"] for k in kpi_list)
-            score = round(total_weighted / total_weight * 10, 2) if total_weight else 0
+            score = round(total_weighted / total_weight, 2) if total_weight else 0
             SectionScore.objects.create(
                 submission=submission,
                 name=area,
@@ -79,6 +135,15 @@ class SubmissionCreateSerializer(serializers.ModelSerializer):
         return submission
 
 
+# ---- per-KPI rating from M&E during approval ----
+class KpiRatingSerializer(serializers.Serializer):
+    kpi_id            = serializers.IntegerField()
+    consultant_rating = serializers.IntegerField(min_value=1, max_value=6)
+    agreed_rating     = serializers.IntegerField(min_value=1, max_value=6)
+    recommendation    = serializers.CharField(allow_blank=True, default="")
+
+
 class ApprovalActionSerializer(serializers.Serializer):
-    action  = serializers.ChoiceField(choices=["approve", "reject"])
-    comment = serializers.CharField(allow_blank=True, default="")
+    action           = serializers.ChoiceField(choices=["approve", "reject"])
+    reviewer_comment = serializers.CharField(allow_blank=True, default="")
+    kpi_ratings      = KpiRatingSerializer(many=True, required=False, default=list)

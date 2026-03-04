@@ -21,7 +21,7 @@ export function clearTokens() {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type UserRole = "me" | "ceo" | "admin" | "entity"
+export type UserRole = "me" | "admin" | "entity"
 
 export interface AuthUser {
   id: number
@@ -49,7 +49,7 @@ export interface Submission {
   status: "Draft" | "Pending" | "Under Review" | "Approved" | "Rejected"
   reviewed_by: string
   review_date: string | null
-  ceo_comment: string
+  reviewer_comment: string
   overall_comment: string
   sections: SectionScore[]
   kpis: KpiActual[]
@@ -69,13 +69,25 @@ export interface KpiActual {
   name: string
   area: string
   unit: string
-  target: number
+  // Consultant-defined (read-only after creation)
+  year_target: number
+  period_target: number
+  allowable_variance: number
+  prev_year_performance: number | null
+  // Entity-supplied
   actual: number
   variance: number
+  // Ratings
+  self_rating: number | null
+  consultant_rating: number | null
+  agreed_rating: number | null
+  // Scoring
   raw_score: number
   weight: number
   weighted: number
-  comment: string
+  // Comments
+  evaluatee_comment: string
+  recommendation: string
 }
 
 export interface DashboardSummary {
@@ -196,17 +208,17 @@ export async function getPendingApprovals(): Promise<Submission[]> {
   return Array.isArray(res) ? res : (res as { results: Submission[] }).results ?? []
 }
 
-export async function approveSubmission(id: number, comment: string) {
+export async function approveSubmission(id: number, payload: ApprovalPayload) {
   return request(`/api/approvals/${id}/act/`, {
     method: "POST",
-    body: JSON.stringify({ action: "approve", comment }),
+    body: JSON.stringify({ ...payload, action: "approve" }),
   })
 }
 
-export async function rejectSubmission(id: number, comment: string) {
+export async function rejectSubmission(id: number, payload: ApprovalPayload) {
   return request(`/api/approvals/${id}/act/`, {
     method: "POST",
-    body: JSON.stringify({ action: "reject", comment }),
+    body: JSON.stringify({ ...payload, action: "reject" }),
   })
 }
 
@@ -226,16 +238,45 @@ export async function getSubmissions(): Promise<Submission[]> {
 
 export async function getKpiTemplate(entityId?: number) {
   const qs = entityId ? `?entity=${entityId}` : ""
-  return request<Array<{ id: number; name: string; area: string; unit: string; target: number; weight: number }>>(
+  return request<Array<{
+    id: number
+    name: string
+    area: string
+    unit: string
+    target: number
+    weight: number
+    allowable_variance: number
+    prev_year_performance: number | null
+    period_target: number
+    description: string
+  }>>(
     `/api/submissions/kpis/template/${qs}`,
   )
 }
 
+export interface KpiSubmitEntry {
+  kpi_id: number
+  name: string
+  area: string
+  unit: string
+  year_target: number
+  period_target: number
+  allowable_variance: number
+  actual: number
+  self_rating?: number
+  weight: number
+  evaluatee_comment?: string
+}
+
 export interface SubmitPayload {
+  entity: number
   quarter: string
   period: string
+  submitted_by: string
+  kpi_count: number
+  overall_score: number
   overall_comment: string
-  kpis: Array<{ kpi: number; actual: number; comment: string }>
+  kpis: KpiSubmitEntry[]
 }
 
 export async function submitActuals(payload: SubmitPayload) {
@@ -243,6 +284,19 @@ export async function submitActuals(payload: SubmitPayload) {
     method: "POST",
     body: JSON.stringify(payload),
   })
+}
+
+export interface KpiRating {
+  kpi_id: number
+  consultant_rating: number
+  agreed_rating: number
+  recommendation?: string
+}
+
+export interface ApprovalPayload {
+  action: "approve" | "reject"
+  reviewer_comment: string
+  kpi_ratings: KpiRating[]
 }
 
 // ── Entities ─────────────────────────────────────────────────────────────────

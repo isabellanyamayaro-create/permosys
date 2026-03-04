@@ -7,12 +7,6 @@ class IsAdmin(BasePermission):
         return bool(request.user and request.user.is_authenticated and request.user.role == "admin")
 
 
-class IsCEO(BasePermission):
-    """Only CEO users."""
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.role == "ceo")
-
-
 class IsEntity(BasePermission):
     """Only entity (ministry) users."""
     def has_permission(self, request, view):
@@ -25,11 +19,12 @@ class IsMEConsultant(BasePermission):
         return bool(request.user and request.user.is_authenticated and request.user.role == "me")
 
 
-class IsCEOOrAdmin(BasePermission):
+class IsMEOrAdmin(BasePermission):
+    """M&E Consultants or Administrators — can approve/reject submissions."""
     def has_permission(self, request, view):
         return bool(
             request.user and request.user.is_authenticated
-            and request.user.role in ("ceo", "admin")
+            and request.user.role in ("me", "admin")
         )
 
 

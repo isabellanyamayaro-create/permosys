@@ -5,11 +5,8 @@ import {
   FileText,
   Library,
   CalendarCheck,
-  CheckCircle2,
   BarChart3,
   Shield,
-  ClipboardCheck,
-  FileCog,
   Users,
   Cog,
   Settings,
@@ -54,12 +51,11 @@ interface NavItem {
 
 // M&E Consultant: full access to operational screens
 const meNav: NavItem[] = [
-  { title: "Dashboard",    icon: LayoutDashboard, href: "/" },
-  { title: "Contracts",    icon: FileText,        href: "/contracts" },
-  { title: "KPI Library",  icon: Library,         href: "/kpi-library" },
-  { title: "Submissions",  icon: CalendarCheck,   href: "/submissions" },
-  { title: "Approvals",    icon: CheckCircle2,    href: "/approvals" },
-  { title: "Reports",      icon: BarChart3,       href: "/reports" },
+  { title: "Dashboard",       icon: LayoutDashboard, href: "/" },
+  { title: "Contracts",       icon: FileText,        href: "/contracts" },
+  { title: "KPI Library",     icon: Library,         href: "/kpi-library" },
+  { title: "MDA Evaluations", icon: CalendarCheck,   href: "/approvals" },
+  { title: "Reports",         icon: BarChart3,       href: "/reports" },
 ]
 
 const meSystemNav: NavItem[] = [
@@ -67,15 +63,7 @@ const meSystemNav: NavItem[] = [
   { title: "Settings",  icon: Settings, href: "/settings" },
 ]
 
-// CEO: approval-focused, read-only dashboards + reports
-const ceoNav: NavItem[] = [
-  { title: "CEO Dashboard",       icon: LayoutDashboard, href: "/ceo" },
-  { title: "Pending Approvals",   icon: ClipboardCheck,  href: "/ceo/approvals" },
-  { title: "Reviewed Contracts",  icon: FileCog,         href: "/ceo/reviewed" },
-  { title: "Reports",             icon: BarChart3,       href: "/reports" },
-]
-
-const ceoSystemNav: NavItem[] = []
+// CEO nav removed — CEO office is now a regular entity
 
 // Admin: system config only
 const adminNav: NavItem[] = [
@@ -103,24 +91,23 @@ const entitySystemNav: NavItem[] = []
 function getNavForRole(role: UserRole): { main: NavItem[]; system: NavItem[] } {
   switch (role) {
     case "me":     return { main: meNav,     system: meSystemNav }
-    case "ceo":    return { main: ceoNav,    system: ceoSystemNav }
     case "admin":  return { main: adminNav,  system: adminSystemNav }
     case "entity": return { main: entityNav, system: entitySystemNav }
+    default:       return { main: meNav,     system: meSystemNav }
   }
 }
 
 function getMenuLabel(role: UserRole): string {
   switch (role) {
     case "me":     return "M&E Menu"
-    case "ceo":    return "CEO Menu"
     case "admin":  return "Admin Menu"
     case "entity": return "Entity Menu"
+    default:       return "Menu"
   }
 }
 
 function getHomeHref(role: UserRole): string {
   switch (role) {
-    case "ceo":    return "/ceo"
     case "entity": return "/entity"
     default:       return "/"
   }

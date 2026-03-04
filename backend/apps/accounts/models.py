@@ -4,7 +4,6 @@ from django.db import models
 
 class UserRole(models.TextChoices):
     ME     = "me",     "M&E Consultant"
-    CEO    = "ceo",    "Chief Executive Officer"
     ADMIN  = "admin",  "System Administrator"
     ENTITY = "entity", "Entity User"
 
@@ -34,7 +33,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     initials = models.CharField(max_length=5, blank=True)
     label    = models.CharField(max_length=100, blank=True)
 
-    # Link to entity — set for CEO and entity roles
+    # Link to entity — set for entity role
     entity   = models.ForeignKey(
         "entities.Entity",
         null=True, blank=True,

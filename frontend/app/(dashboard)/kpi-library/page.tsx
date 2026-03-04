@@ -96,13 +96,13 @@ export default function KPILibraryPage() {
 
           {/* Toolbar */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative">
+            <div className="relative flex-1 sm:flex-none">
               <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search KPIs..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 w-72 pl-8"
+                className="h-9 w-full sm:w-72 pl-8"
               />
             </div>
 
@@ -180,6 +180,7 @@ export default function KPILibraryPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="px-0 pb-0">
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -230,6 +231,7 @@ export default function KPILibraryPage() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
         </div>
