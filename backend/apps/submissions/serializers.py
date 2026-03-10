@@ -85,7 +85,7 @@ class SubmissionCreateSerializer(serializers.ModelSerializer):
             variance    = KpiActual.calculate_variance(k["period_target"], k["actual"])
             raw_score   = KpiActual.calculate_raw_score(variance)
             self_rating = k.get("self_rating") or raw_score
-            weighted    = self_rating * k["weight"]
+            weighted    = round(self_rating * k["weight"] / 100, 4)
 
             # Auto-populate prev_year_performance from last approved KpiActual for same entity+kpi
             last_approved = (
@@ -123,13 +123,14 @@ class SubmissionCreateSerializer(serializers.ModelSerializer):
         for area, kpi_list in area_groups.items():
             total_weight   = sum(k["weight"] for k in kpi_list)
             total_weighted = sum(k["weighted"] for k in kpi_list)
-            score = round(total_weighted / total_weight, 2) if total_weight else 0
+            # score = section average on 1-6 scale (reverse the /100 per-KPI weighting)
+            score = round(total_weighted * 100 / total_weight, 2) if total_weight else 0
             SectionScore.objects.create(
                 submission=submission,
                 name=area,
                 score=score,
                 weight=total_weight,
-                weighted=total_weighted,
+                weighted=round(total_weighted, 4),
             )
 
         return submission

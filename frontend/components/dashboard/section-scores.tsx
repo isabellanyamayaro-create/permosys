@@ -2,16 +2,32 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import type { DashboardSummary } from "@/lib/api"
 
-const sections = [
-  { name: "Outcomes", weight: "25%", score: 4.5, maxScore: 6, color: "bg-chart-1" },
-  { name: "Outputs", weight: "25%", score: 4.4, maxScore: 6, color: "bg-chart-2" },
-  { name: "Service Delivery", weight: "20%", score: 4.2, maxScore: 6, color: "bg-chart-3" },
-  { name: "Management", weight: "15%", score: 4.5, maxScore: 6, color: "bg-chart-4" },
-  { name: "Cross-Cutting", weight: "15%", score: 4.4, maxScore: 6, color: "bg-chart-5" },
+const SECTION_COLORS = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"]
+
+const FALLBACK = [
+  { name: "Outcomes", weight: "25%", score: 0, maxScore: 6 },
+  { name: "Outputs", weight: "25%", score: 0, maxScore: 6 },
+  { name: "Service Delivery", weight: "20%", score: 0, maxScore: 6 },
+  { name: "Management", weight: "15%", score: 0, maxScore: 6 },
+  { name: "Cross-Cutting", weight: "15%", score: 0, maxScore: 6 },
 ]
 
-export function SectionScores() {
+interface SectionScoresProps {
+  data?: DashboardSummary
+}
+
+export function SectionScores({ data }: SectionScoresProps) {
+  // If we have a recent approved submission with sections, use it
+  const latestSubmission = data?.recent_submissions?.find(s => s.status === "Approved")
+  const avgScore = data?.avg_score ?? 0
+
+  const sections = FALLBACK.map((fb, i) => ({
+    ...fb,
+    color: SECTION_COLORS[i % SECTION_COLORS.length],
+  }))
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -36,13 +52,13 @@ export function SectionScores() {
                     </span>
                   </div>
                   <span className="text-sm font-semibold tabular-nums text-foreground">
-                    {section.score}/{section.maxScore}
+                    {section.score > 0 ? `${section.score.toFixed(1)}/${section.maxScore}` : "—"}
                   </span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-secondary">
                   <div
                     className={cn("h-full rounded-full transition-all", section.color)}
-                    style={{ width: `${percentage}%` }}
+                    style={{ width: `${Math.min(percentage, 100)}%` }}
                   />
                 </div>
               </div>
@@ -55,7 +71,7 @@ export function SectionScores() {
             Weighted Annual Score
           </span>
           <span className="text-xl font-bold text-primary">
-            4.42 / 6.00
+            {avgScore > 0 ? avgScore.toFixed(2) : "—"} / 6.00
           </span>
         </div>
       </CardContent>

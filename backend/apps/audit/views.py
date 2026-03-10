@@ -1,13 +1,16 @@
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
-from apps.accounts.permissions import IsAdmin
+from rest_framework.filters import SearchFilter
+from apps.accounts.permissions import IsMEOrAdmin
 from .models import AuditLog
 from .serializers import AuditLogSerializer
 
 
 class AuditLogListView(generics.ListAPIView):
     serializer_class   = AuditLogSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsMEOrAdmin]
+    filter_backends    = [SearchFilter]
+    search_fields      = ["user", "action", "target", "details"]
 
     def get_queryset(self):
         qs = AuditLog.objects.all()

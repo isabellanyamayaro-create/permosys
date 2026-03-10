@@ -312,9 +312,169 @@ export async function getEntities(): Promise<Entity[]> {
   return Array.isArray(res) ? res : (res as { results: Entity[] }).results ?? []
 }
 
+export async function createEntity(data: Omit<Entity, "id">) {
+  return request<Entity>("/api/entities/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateEntity(id: number, data: Partial<Entity>) {
+  return request<Entity>(`/api/entities/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteEntity(id: number) {
+  return request<void>(`/api/entities/${id}/`, { method: "DELETE" })
+}
+
 // ── Reports ───────────────────────────────────────────────────────────────────
 
 export async function getReports(): Promise<Submission[]> {
   const res = await request<Submission[] | { results: Submission[] }>("/api/reports/")
   return Array.isArray(res) ? res : (res as { results: Submission[] }).results ?? []
+}
+
+// ── Users ────────────────────────────────────────────────────────────────────
+
+export interface PmsUser {
+  id: number
+  email: string
+  name: string
+  role: UserRole
+  entity: number | null
+  entity_name: string | null
+  badge: string
+  initials: string
+  label: string
+  is_active: boolean
+}
+
+export interface CreateUserPayload {
+  email: string
+  name: string
+  role: string
+  entity?: number | null
+  password: string
+}
+
+export async function getUsers(): Promise<PmsUser[]> {
+  const res = await request<PmsUser[] | { results: PmsUser[] }>("/api/users/")
+  return Array.isArray(res) ? res : (res as { results: PmsUser[] }).results ?? []
+}
+
+export async function createUser(data: CreateUserPayload) {
+  return request<PmsUser>("/api/users/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateUser(id: number, data: Partial<PmsUser>) {
+  return request<PmsUser>(`/api/users/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteUser(id: number) {
+  return request<void>(`/api/users/${id}/`, { method: "DELETE" })
+}
+
+// ── KPI Definitions ─────────────────────────────────────────────────────────
+
+export interface KpiDefinition {
+  id: number
+  name: string
+  area: string
+  unit: string
+  target: number
+  weight: number
+  allowable_variance: number
+  prev_year_performance: number | null
+  period_target: number
+  description: string
+}
+
+export async function getKpiDefinitions(): Promise<KpiDefinition[]> {
+  const res = await request<KpiDefinition[] | { results: KpiDefinition[] }>("/api/kpis/")
+  return Array.isArray(res) ? res : (res as { results: KpiDefinition[] }).results ?? []
+}
+
+export async function createKpiDefinition(data: Omit<KpiDefinition, "id" | "period_target">) {
+  return request<KpiDefinition>("/api/kpis/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateKpiDefinition(id: number, data: Partial<KpiDefinition>) {
+  return request<KpiDefinition>(`/api/kpis/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteKpiDefinition(id: number) {
+  return request<void>(`/api/kpis/${id}/`, { method: "DELETE" })
+}
+
+// ── Contracts ───────────────────────────────────────────────────────────────
+
+export interface Contract {
+  id: number
+  entity: number
+  entity_detail?: Entity
+  period: string
+  status: string
+  total_kpis: number
+  reviewer: string
+  signed_date: string | null
+}
+
+export async function getContracts(): Promise<Contract[]> {
+  const res = await request<Contract[] | { results: Contract[] }>("/api/contracts/")
+  return Array.isArray(res) ? res : (res as { results: Contract[] }).results ?? []
+}
+
+export async function createContract(data: Omit<Contract, "id" | "entity_detail">) {
+  return request<Contract>("/api/contracts/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateContract(id: number, data: Partial<Contract>) {
+  return request<Contract>(`/api/contracts/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteContract(id: number) {
+  return request<void>(`/api/contracts/${id}/`, { method: "DELETE" })
+}
+
+// ── Audit Logs ──────────────────────────────────────────────────────────────
+
+export interface AuditLogEntry {
+  id: number
+  action: string
+  user: string
+  role: string
+  target: string
+  details: string
+  timestamp: string
+}
+
+export async function getAuditLogs(params?: { user?: string; action?: string; search?: string }): Promise<AuditLogEntry[]> {
+  const qs = new URLSearchParams()
+  if (params?.user) qs.set("user", params.user)
+  if (params?.action) qs.set("action", params.action)
+  if (params?.search) qs.set("search", params.search)
+  const query = qs.toString() ? `?${qs.toString()}` : ""
+  const res = await request<AuditLogEntry[] | { results: AuditLogEntry[] }>(`/api/audit-log/${query}`)
+  return Array.isArray(res) ? res : (res as { results: AuditLogEntry[] }).results ?? []
 }

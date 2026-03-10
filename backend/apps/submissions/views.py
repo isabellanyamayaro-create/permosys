@@ -127,7 +127,7 @@ def approve_or_reject(request, pk):
                 kpi_actual.consultant_rating = rating["consultant_rating"]
                 kpi_actual.agreed_rating     = rating["agreed_rating"]
                 kpi_actual.recommendation    = rating.get("recommendation", "")
-                kpi_actual.weighted          = kpi_actual.agreed_rating * kpi_actual.weight
+                kpi_actual.weighted          = round(kpi_actual.agreed_rating * kpi_actual.weight / 100, 4)
                 kpi_actual.save()
 
         # Recompute section scores using new agreed ratings
@@ -138,17 +138,17 @@ def approve_or_reject(request, pk):
         for area, kpi_list in area_groups.items():
             total_weight   = sum(k.weight for k in kpi_list)
             total_weighted = sum(k.weighted for k in kpi_list)
-            score = round(total_weighted / total_weight, 2) if total_weight else 0
+            # score = section average on 1-6 scale
+            score = round(total_weighted * 100 / total_weight, 2) if total_weight else 0
             SectionScore.objects.create(
                 submission=submission, name=area,
-                score=score, weight=total_weight, weighted=total_weighted,
+                score=score, weight=total_weight, weighted=round(total_weighted, 4),
             )
 
-        # Recompute overall score
+        # Recompute overall score — sum of all weighted scores = value on 0-6 scale
         all_kpis = list(submission.kpis.all())
-        total_w  = sum(k.weight for k in all_kpis)
         total_ws = sum(k.weighted for k in all_kpis)
-        submission.overall_score = round(total_ws / total_w, 2) if total_w else 0.0
+        submission.overall_score = round(total_ws, 2)
 
     submission.reviewed_by      = user.name
     submission.review_date      = date.today()

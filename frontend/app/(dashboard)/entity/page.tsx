@@ -63,7 +63,7 @@ export default function EntityDashboardPage() {
 
   const sectionBreakdown = latestApproved?.sections ?? []
   const recentActivity = (summary?.recent_submissions ?? []).map((s) => ({
-    action: `${s.quarter} ${s.period} submission â€” ${s.status}`,
+    action: `${s.quarter} ${s.period} submission — ${s.status}`,
     time: new Date(s.submitted_date).toLocaleDateString(),
     type: s.status === "Approved" ? ("success" as const) : ("info" as const),
   }))

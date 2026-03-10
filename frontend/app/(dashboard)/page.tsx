@@ -78,7 +78,7 @@ export default function DashboardPage() {
 
           {/* Bottom Row */}
           <div className="grid gap-6 lg:grid-cols-2">
-            <SectionScores />
+            <SectionScores data={data ?? undefined} />
             <EntityRanking data={data?.entity_ranking} />
           </div>
         </div>

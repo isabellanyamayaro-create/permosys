@@ -137,6 +137,7 @@ function MdaScoresheet({
   onReviewed: () => void
 }) {
   const { user } = useAuth()
+  const isReadOnly = submission.status === "Approved" || submission.status === "Rejected"
   const [open,            setOpen]            = useState(false)
   const [consultantName,  setConsultantName]  = useState(user?.name ?? "")
   const [ratings,         setRatings]         = useState<Record<number, RatingState>>(() =>
@@ -375,26 +376,26 @@ function MdaScoresheet({
                               <TableCell className="text-center text-muted-foreground border-r">{idx + 1}</TableCell>
                               <TableCell className="font-medium">{kpi.name}</TableCell>
                               <TableCell className="px-1">
-                                <Input value={planning[kpi.id]?.unit ?? kpi.unit} onChange={e => setPlann(kpi.id, "unit", e.target.value)} className="h-7 w-16 text-xs text-center" placeholder="Unit" />
+                                <Input value={planning[kpi.id]?.unit ?? kpi.unit} onChange={e => setPlann(kpi.id, "unit", e.target.value)} className="h-7 w-16 text-xs text-center" placeholder="Unit" readOnly={isReadOnly} />
                               </TableCell>
                               <TableCell className="px-1">
-                                <Input type="number" value={planning[kpi.id]?.weight ?? String(kpi.weight)} onChange={e => setPlann(kpi.id, "weight", e.target.value)} className="h-7 w-12 text-xs text-center tabular-nums" min={0} step={0.01} />
+                                <Input type="number" value={planning[kpi.id]?.weight ?? String(kpi.weight)} onChange={e => setPlann(kpi.id, "weight", e.target.value)} className="h-7 w-12 text-xs text-center tabular-nums" min={0} step={0.01} readOnly={isReadOnly} />
                               </TableCell>
                               <TableCell className="px-1">
-                                <Input type="number" value={planning[kpi.id]?.prev_year_performance ?? ""} onChange={e => setPlann(kpi.id, "prev_year_performance", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" placeholder="\u2014" />
+                                <Input type="number" value={planning[kpi.id]?.prev_year_performance ?? ""} onChange={e => setPlann(kpi.id, "prev_year_performance", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" placeholder="\u2014" readOnly={isReadOnly} />
                               </TableCell>
                               <TableCell className="px-1">
-                                <Input type="number" value={planning[kpi.id]?.year_target ?? ""} onChange={e => setPlann(kpi.id, "year_target", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" min={0} />
+                                <Input type="number" value={planning[kpi.id]?.year_target ?? ""} onChange={e => setPlann(kpi.id, "year_target", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" min={0} readOnly={isReadOnly} />
                               </TableCell>
                               <TableCell className="px-1">
                                 <div className="flex items-center gap-0.5 justify-center">
                                   <span className="text-[10px] text-muted-foreground">±</span>
-                                  <Input type="number" value={planning[kpi.id]?.allowable_variance ?? ""} onChange={e => setPlann(kpi.id, "allowable_variance", e.target.value)} className="h-7 w-12 text-xs text-center tabular-nums" min={0} />
+                                  <Input type="number" value={planning[kpi.id]?.allowable_variance ?? ""} onChange={e => setPlann(kpi.id, "allowable_variance", e.target.value)} className="h-7 w-12 text-xs text-center tabular-nums" min={0} readOnly={isReadOnly} />
                                   <span className="text-[10px] text-muted-foreground">%</span>
                                 </div>
                               </TableCell>
                               <TableCell className="px-1">
-                                <Input type="number" value={planning[kpi.id]?.period_target ?? ""} onChange={e => setPlann(kpi.id, "period_target", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" min={0} />
+                                <Input type="number" value={planning[kpi.id]?.period_target ?? ""} onChange={e => setPlann(kpi.id, "period_target", e.target.value)} className="h-7 w-20 text-xs text-center tabular-nums" min={0} readOnly={isReadOnly} />
                               </TableCell>
                               {/* Entity-submitted — read-only */}
                               <TableCell className="text-center tabular-nums font-semibold bg-muted/5">
@@ -407,7 +408,7 @@ function MdaScoresheet({
                               </TableCell>
                               {/* Consultant Rating ✏ */}
                               <TableCell className="px-1">
-                                <Select value={r.consultant_rating} onValueChange={v => setRating(kpi.id, "consultant_rating", v)}>
+                                <Select value={r.consultant_rating} onValueChange={v => setRating(kpi.id, "consultant_rating", v)} disabled={isReadOnly}>
                                   <SelectTrigger className="h-7 w-16 text-xs">
                                     <SelectValue placeholder={kpi.consultant_rating ? String(kpi.consultant_rating) : "\u2014"} />
                                   </SelectTrigger>
@@ -420,7 +421,7 @@ function MdaScoresheet({
                               </TableCell>
                               {/* Agreed Rating ✏ */}
                               <TableCell className="px-1">
-                                <Select value={r.agreed_rating} onValueChange={v => setRating(kpi.id, "agreed_rating", v)}>
+                                <Select value={r.agreed_rating} onValueChange={v => setRating(kpi.id, "agreed_rating", v)} disabled={isReadOnly}>
                                   <SelectTrigger className="h-7 w-16 text-xs">
                                     <SelectValue placeholder={kpi.agreed_rating ? String(kpi.agreed_rating) : "\u2014"} />
                                   </SelectTrigger>
@@ -442,8 +443,9 @@ function MdaScoresheet({
                                 <Input
                                   value={r.recommendation}
                                   onChange={e => setRating(kpi.id, "recommendation", e.target.value)}
-                                  placeholder="Enter recommendation..."
+                                  placeholder={isReadOnly ? "" : "Enter recommendation..."}
                                   className="h-7 min-w-[130px] text-xs"
+                                  readOnly={isReadOnly}
                                 />
                               </TableCell>
                             </TableRow>
@@ -532,30 +534,45 @@ function MdaScoresheet({
           {/* Overall Reviewer Comment */}
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Overall Reviewer Comment</Label>
-            <Textarea
-              value={reviewerComment}
-              onChange={e => setReviewerComment(e.target.value)}
-              placeholder="Summarise the evaluation, note key achievements or concerns..."
-              rows={3}
-              className="text-sm resize-none"
-            />
+            {isReadOnly ? (
+              <p className="text-sm text-foreground bg-muted/30 rounded-md p-3 min-h-[60px]">
+                {submission.reviewer_comment || "No comment recorded."}
+              </p>
+            ) : (
+              <Textarea
+                value={reviewerComment}
+                onChange={e => setReviewerComment(e.target.value)}
+                placeholder="Summarise the evaluation, note key achievements or concerns..."
+                rows={3}
+                className="text-sm resize-none"
+              />
+            )}
           </div>
+
+          {isReadOnly && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Badge className={statusBadge(submission.status)}>{submission.status}</Badge>
+              <span>by {submission.reviewed_by || "—"} on {submission.review_date || "—"}</span>
+            </div>
+          )}
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          {/* Actions */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button disabled={submitting} onClick={() => handleAction("approve")}
-              className="gap-2 bg-green-700 hover:bg-green-800 text-white w-full sm:w-auto">
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-              Approve
-            </Button>
-            <Button disabled={submitting} variant="destructive" onClick={() => handleAction("reject")}
-              className="gap-2 w-full sm:w-auto">
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
-              Reject
-            </Button>
-          </div>
+          {/* Actions — only show for pending submissions */}
+          {!isReadOnly && (
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button disabled={submitting} onClick={() => handleAction("approve")}
+                className="gap-2 bg-green-700 hover:bg-green-800 text-white w-full sm:w-auto">
+                {submitting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                Approve
+              </Button>
+              <Button disabled={submitting} variant="destructive" onClick={() => handleAction("reject")}
+                className="gap-2 w-full sm:w-auto">
+                {submitting ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
+                Reject
+              </Button>
+            </div>
+          )}
         </CardContent>
       )}
     </Card>

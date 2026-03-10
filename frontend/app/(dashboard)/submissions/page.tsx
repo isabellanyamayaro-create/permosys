@@ -209,7 +209,7 @@ export default function SubmissionsPage() {
     const variance   = hasActual ? calcVariance(kpi.period_target, actualNum) : null
     const autoScore  = variance !== null ? calcRawScore(variance) : null
     const selfRating = kpi.self_rating ? parseInt(kpi.self_rating) : (autoScore ?? null)
-    const weighted   = selfRating !== null ? selfRating * kpi.weight : null
+    const weighted   = selfRating !== null ? selfRating * kpi.weight / 100 : null
     return { ...kpi, actualNum: hasActual ? actualNum : null, variance, autoScore, selfRating, weighted }
   }), [kpis])
 
@@ -226,7 +226,7 @@ export default function SubmissionsPage() {
   const totalWeight   = computedRows.reduce((s,r) => s + r.weight, 0)
   const totalWeighted = computedRows.reduce((s,r) => s + (r.weighted ?? 0), 0)
   const filledCount   = computedRows.filter(r => r.actualNum !== null).length
-  const overallScore  = totalWeight > 0 ? (totalWeighted / totalWeight).toFixed(2) : "\u2014"
+  const overallScore  = totalWeighted > 0 ? totalWeighted.toFixed(2) : "\u2014"
 
   const handleSubmit = async () => {
     if (!entity || !quarter) { setSubmitError("Please select an entity and quarter."); return }

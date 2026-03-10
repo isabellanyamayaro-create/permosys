@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,10 +16,21 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Select,
   SelectContent,
@@ -30,22 +41,19 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Plus, Pencil, Trash2, Search } from "lucide-react"
+import { Plus, Pencil, Trash2, Search, Loader2, Save } from "lucide-react"
+import {
+  getKpiDefinitions,
+  createKpiDefinition,
+  updateKpiDefinition,
+  deleteKpiDefinition,
+  type KpiDefinition,
+} from "@/lib/api"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/contexts/AuthContext"
 
-const kpiLibrary = [
-  { id: 1, name: "Budget Execution Rate", area: "Outcomes", unit: "Percentage", weight: 5, variance: "5%", description: "Measures the percentage of allocated budget executed within the fiscal year" },
-  { id: 2, name: "Revenue Collection Target", area: "Outcomes", unit: "Amount", weight: 5, variance: "10%", description: "Total revenue collected against annual target" },
-  { id: 3, name: "Legislative Bills Processed", area: "Outputs", unit: "Number", weight: 4, variance: "2", description: "Number of legislative bills reviewed and processed" },
-  { id: 4, name: "Policy Documents Developed", area: "Outputs", unit: "Number", weight: 4, variance: "1", description: "Number of new policy documents finalized" },
-  { id: 5, name: "Service Delivery Index", area: "Service Delivery", unit: "Index", weight: 5, variance: "0.3", description: "Composite index measuring quality of public service delivery" },
-  { id: 6, name: "Citizen Satisfaction Index", area: "Service Delivery", unit: "Index", weight: 4, variance: "0.5", description: "Citizen satisfaction survey composite score" },
-  { id: 7, name: "Staff Training Completion", area: "Management", unit: "Percentage", weight: 3, variance: "10%", description: "Percentage of staff who completed mandatory training programs" },
-  { id: 8, name: "ICT Systems Uptime", area: "Management", unit: "Percentage", weight: 3, variance: "2%", description: "Percentage uptime of critical ICT infrastructure" },
-  { id: 9, name: "Audit Compliance Score", area: "Cross-Cutting", unit: "Index", weight: 4, variance: "0.5", description: "Score from annual audit compliance assessment" },
-  { id: 10, name: "Gender Mainstreaming Score", area: "Cross-Cutting", unit: "Index", weight: 3, variance: "0.3", description: "Gender mainstreaming effectiveness index" },
-  { id: 11, name: "Environmental Impact Score", area: "Cross-Cutting", unit: "Index", weight: 3, variance: "0.5", description: "Environmental compliance and sustainability score" },
-  { id: 12, name: "Project Completion Rate", area: "Outputs", unit: "Percentage", weight: 5, variance: "8%", description: "Percentage of planned projects completed on schedule" },
-]
+const AREAS = ["Outcomes", "Outputs", "Service Delivery", "Management", "Cross-Cutting"] as const
+const UNITS = ["Percentage", "Number", "Amount", "Index", "Ratio", "Days", "Score"] as const
 
 const areaColors: Record<string, string> = {
   Outcomes: "bg-chart-1/10 text-chart-1",
@@ -55,22 +63,134 @@ const areaColors: Record<string, string> = {
   "Cross-Cutting": "bg-chart-5/10 text-chart-5",
 }
 
+interface KpiFormData {
+  name: string
+  area: string
+  unit: string
+  target: string
+  weight: string
+  allowable_variance: string
+  prev_year_performance: string
+  description: string
+}
+
+const emptyForm: KpiFormData = {
+  name: "", area: "", unit: "", target: "", weight: "",
+  allowable_variance: "5", prev_year_performance: "", description: "",
+}
+
 export default function KPILibraryPage() {
+  const { user } = useAuth()
+  const canEdit = user?.role === "admin" || user?.role === "me"
+
+  const [kpis, setKpis] = useState<KpiDefinition[]>([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [areaFilter, setAreaFilter] = useState("all")
-  const [modalOpen, setModalOpen] = useState(false)
 
-  const filtered = kpiLibrary.filter((kpi) => {
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingKpi, setEditingKpi] = useState<KpiDefinition | null>(null)
+  const [form, setForm] = useState<KpiFormData>(emptyForm)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState("")
+
+  // Delete confirmation
+  const [deletingKpi, setDeletingKpi] = useState<KpiDefinition | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const fetchKpis = useCallback(async () => {
+    try {
+      const data = await getKpiDefinitions()
+      setKpis(data)
+    } catch (err) {
+      console.error("Failed to load KPIs:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchKpis() }, [fetchKpis])
+
+  const filtered = kpis.filter((kpi) => {
     const matchesSearch = kpi.name.toLowerCase().includes(search.toLowerCase())
     const matchesArea = areaFilter === "all" || kpi.area === areaFilter
     return matchesSearch && matchesArea
   })
 
-  const areas = [...new Set(kpiLibrary.map((k) => k.area))]
-  const countByArea = areas.reduce<Record<string, number>>((acc, area) => {
-    acc[area] = kpiLibrary.filter((k) => k.area === area).length
+  const countByArea = AREAS.reduce<Record<string, number>>((acc, area) => {
+    acc[area] = kpis.filter((k) => k.area === area).length
     return acc
   }, {})
+
+  const openAdd = () => {
+    setEditingKpi(null)
+    setForm(emptyForm)
+    setFormError("")
+    setModalOpen(true)
+  }
+
+  const openEdit = (kpi: KpiDefinition) => {
+    setEditingKpi(kpi)
+    setForm({
+      name: kpi.name,
+      area: kpi.area,
+      unit: kpi.unit,
+      target: String(kpi.target),
+      weight: String(kpi.weight),
+      allowable_variance: String(kpi.allowable_variance),
+      prev_year_performance: kpi.prev_year_performance != null ? String(kpi.prev_year_performance) : "",
+      description: kpi.description,
+    })
+    setFormError("")
+    setModalOpen(true)
+  }
+
+  const handleSave = async () => {
+    if (!form.name || !form.area || !form.unit || !form.target || !form.weight) {
+      setFormError("Please fill in all required fields.")
+      return
+    }
+    setSaving(true)
+    setFormError("")
+    try {
+      const payload = {
+        name: form.name,
+        area: form.area,
+        unit: form.unit,
+        target: parseFloat(form.target),
+        weight: parseFloat(form.weight),
+        allowable_variance: parseFloat(form.allowable_variance) || 5,
+        prev_year_performance: form.prev_year_performance ? parseFloat(form.prev_year_performance) : null,
+        description: form.description,
+      }
+      if (editingKpi) {
+        await updateKpiDefinition(editingKpi.id, payload)
+      } else {
+        await createKpiDefinition(payload)
+      }
+      setModalOpen(false)
+      await fetchKpis()
+    } catch (err: any) {
+      setFormError(err.message || "Failed to save KPI.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deletingKpi) return
+    setDeleting(true)
+    try {
+      await deleteKpiDefinition(deletingKpi.id)
+      setDeletingKpi(null)
+      await fetchKpis()
+    } catch (err) {
+      console.error("Failed to delete KPI:", err)
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <>
@@ -79,15 +199,18 @@ export default function KPILibraryPage() {
         <div className="p-4 lg:p-6 space-y-6">
           {/* Area summary cards */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {areas.map((area) => (
+            {AREAS.map((area) => (
               <Card
                 key={area}
-                className={`cursor-pointer transition-shadow hover:shadow-md ${areaFilter === area ? "ring-2 ring-primary" : ""}`}
+                className={cn(
+                  "cursor-pointer transition-shadow hover:shadow-md",
+                  areaFilter === area && "ring-2 ring-primary"
+                )}
                 onClick={() => setAreaFilter(areaFilter === area ? "all" : area)}
               >
                 <CardContent className="p-4">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{area}</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">{countByArea[area]}</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{countByArea[area] ?? 0}</p>
                   <p className="text-xs text-muted-foreground">indicators</p>
                 </CardContent>
               </Card>
@@ -106,70 +229,12 @@ export default function KPILibraryPage() {
               />
             </div>
 
-            <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-              <DialogTrigger asChild>
-                <Button className="gap-2">
-                  <Plus className="size-4" />
-                  Add KPI
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader>
-                  <DialogTitle>Add New KPI</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 pt-2">
-                  <div className="space-y-2">
-                    <Label>KPI Name</Label>
-                    <Input placeholder="Enter KPI name" />
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Performance Area</Label>
-                      <Select>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select area" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {areas.map((area) => (
-                            <SelectItem key={area} value={area}>{area}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Measurement Unit</Label>
-                      <Select>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select unit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Percentage">Percentage</SelectItem>
-                          <SelectItem value="Number">Number</SelectItem>
-                          <SelectItem value="Amount">Amount</SelectItem>
-                          <SelectItem value="Index">Index</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Default Weight</Label>
-                      <Input type="number" placeholder="e.g. 5" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Allowable Variance</Label>
-                      <Input placeholder="e.g. 5% or 0.3" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Description</Label>
-                    <Textarea placeholder="Describe what this KPI measures..." />
-                  </div>
-                  <div className="flex justify-end gap-3">
-                    <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-                    <Button onClick={() => setModalOpen(false)}>Save KPI</Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
+            {canEdit && (
+              <Button className="gap-2" onClick={openAdd}>
+                <Plus className="size-4" />
+                Add KPI
+              </Button>
+            )}
           </div>
 
           {/* KPI Table */}
@@ -181,61 +246,208 @@ export default function KPILibraryPage() {
             </CardHeader>
             <CardContent className="px-0 pb-0">
               <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>KPI Name</TableHead>
-                    <TableHead>Performance Area</TableHead>
-                    <TableHead>Unit</TableHead>
-                    <TableHead className="text-center">Default Weight</TableHead>
-                    <TableHead className="text-center">Variance Rule</TableHead>
-                    <TableHead className="w-20"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((kpi) => (
-                    <TableRow key={kpi.id}>
-                      <TableCell>
-                        <div>
-                          <span className="font-medium text-foreground">{kpi.name}</span>
-                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                            {kpi.description}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={areaColors[kpi.area] || "bg-secondary text-secondary-foreground"}>
-                          {kpi.area}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{kpi.unit}</TableCell>
-                      <TableCell className="text-center font-semibold tabular-nums text-foreground">
-                        {kpi.weight}
-                      </TableCell>
-                      <TableCell className="text-center font-mono text-xs text-muted-foreground">
-                        +/- {kpi.variance}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" className="size-7">
-                            <Pencil className="size-3.5 text-muted-foreground" />
-                            <span className="sr-only">Edit</span>
-                          </Button>
-                          <Button variant="ghost" size="icon" className="size-7">
-                            <Trash2 className="size-3.5 text-muted-foreground" />
-                            <span className="sr-only">Delete</span>
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-sm text-muted-foreground">Loading KPIs...</span>
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <div className="py-12 text-center text-muted-foreground">
+                    {kpis.length === 0 ? "No KPIs defined yet. Add your first KPI to get started." : "No KPIs match your search criteria."}
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>KPI Name</TableHead>
+                        <TableHead>Performance Area</TableHead>
+                        <TableHead>Unit</TableHead>
+                        <TableHead className="text-center">Target</TableHead>
+                        <TableHead className="text-center">Weight (%)</TableHead>
+                        <TableHead className="text-center">Variance Rule</TableHead>
+                        {canEdit && <TableHead className="w-20"></TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filtered.map((kpi) => (
+                        <TableRow key={kpi.id}>
+                          <TableCell>
+                            <div>
+                              <span className="font-medium text-foreground">{kpi.name}</span>
+                              {kpi.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                                  {kpi.description}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={areaColors[kpi.area] || "bg-secondary text-secondary-foreground"}>
+                              {kpi.area}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{kpi.unit}</TableCell>
+                          <TableCell className="text-center font-semibold tabular-nums text-foreground">
+                            {kpi.target}
+                          </TableCell>
+                          <TableCell className="text-center font-semibold tabular-nums text-foreground">
+                            {kpi.weight}
+                          </TableCell>
+                          <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                            ±{kpi.allowable_variance}%
+                          </TableCell>
+                          {canEdit && (
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Button variant="ghost" size="icon" className="size-7" onClick={() => openEdit(kpi)}>
+                                  <Pencil className="size-3.5 text-muted-foreground" />
+                                  <span className="sr-only">Edit</span>
+                                </Button>
+                                <Button variant="ghost" size="icon" className="size-7" onClick={() => setDeletingKpi(kpi)}>
+                                  <Trash2 className="size-3.5 text-muted-foreground" />
+                                  <span className="sr-only">Delete</span>
+                                </Button>
+                              </div>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
+
+      {/* Add/Edit KPI Dialog */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingKpi ? "Edit KPI" : "Add New KPI"}</DialogTitle>
+            <DialogDescription>
+              {editingKpi ? "Update the KPI definition details." : "Define a new KPI indicator for the library."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>KPI Name <span className="text-destructive">*</span></Label>
+              <Input
+                placeholder="Enter KPI name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Performance Area <span className="text-destructive">*</span></Label>
+                <Select value={form.area} onValueChange={(v) => setForm({ ...form, area: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select area" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AREAS.map((area) => (
+                      <SelectItem key={area} value={area}>{area}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Measurement Unit <span className="text-destructive">*</span></Label>
+                <Select value={form.unit} onValueChange={(v) => setForm({ ...form, unit: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select unit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNITS.map((unit) => (
+                      <SelectItem key={unit} value={unit}>{unit}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Annual Target <span className="text-destructive">*</span></Label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 95"
+                  value={form.target}
+                  onChange={(e) => setForm({ ...form, target: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Weight (%) <span className="text-destructive">*</span></Label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 5"
+                  value={form.weight}
+                  onChange={(e) => setForm({ ...form, weight: e.target.value })}
+                  step="0.5"
+                  min="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Allowable Variance (%)</Label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 5"
+                  value={form.allowable_variance}
+                  onChange={(e) => setForm({ ...form, allowable_variance: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Previous Year Performance</Label>
+                <Input
+                  type="number"
+                  placeholder="Optional baseline"
+                  value={form.prev_year_performance}
+                  onChange={(e) => setForm({ ...form, prev_year_performance: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                placeholder="Describe what this KPI measures..."
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+              />
+            </div>
+            {formError && (
+              <p className="text-sm text-destructive">{formError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button className="gap-1.5" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+              {editingKpi ? "Save Changes" : "Create KPI"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deletingKpi} onOpenChange={(open) => !open && setDeletingKpi(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete KPI</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &ldquo;{deletingKpi?.name}&rdquo;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

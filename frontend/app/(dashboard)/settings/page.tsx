@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -7,37 +8,104 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Building2, Users, Shield, Bell, Save } from "lucide-react"
+import { Building2, Users, Shield, Bell, Save, Loader2, CheckCircle2 } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  getEntities, updateEntity, getUsers,
+  type Entity, type PmsUser,
+} from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
 
-const users = [
-  { name: "John Moyo", email: "j.moyo@gov.na", role: "M&E Consultant", status: "Active" },
-  { name: "Dr. K. Mbeki", email: "k.mbeki@gov.na", role: "CEO", status: "Active" },
-  { name: "Prof. T. Nkosi", email: "t.nkosi@gov.na", role: "Reviewer", status: "Active" },
-  { name: "M. Shikongo", email: "m.shikongo@gov.na", role: "Entity Admin", status: "Active" },
-  { name: "L. Amupanda", email: "l.amupanda@gov.na", role: "Entity Admin", status: "Active" },
-  { name: "S. Hamutenya", email: "s.hamutenya@gov.na", role: "Board Member", status: "Inactive" },
-]
+const roleLabelMap: Record<string, string> = {
+  admin: "System Administrator",
+  me: "M&E Consultant",
+  entity: "Entity User",
+}
 
 export default function SettingsPage() {
+  const { user } = useAuth()
+
+  const [entities, setEntities] = useState<Entity[]>([])
+  const [users, setUsers] = useState<PmsUser[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Entity form
+  const [selectedEntityId, setSelectedEntityId] = useState<string>("")
+  const [entityName, setEntityName] = useState("")
+  const [entityShortName, setEntityShortName] = useState("")
+  const [entitySaving, setEntitySaving] = useState(false)
+  const [entitySaved, setEntitySaved] = useState(false)
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [e, u] = await Promise.all([getEntities(), getUsers()])
+      setEntities(e)
+      setUsers(u)
+      if (e.length > 0) {
+        setSelectedEntityId(String(e[0].id))
+        setEntityName(e[0].name)
+        setEntityShortName(e[0].short_name)
+      }
+    } catch (err) {
+      console.error("Failed to load settings data:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  // When entity selection changes, update form fields
+  const handleEntityChange = (id: string) => {
+    setSelectedEntityId(id)
+    setEntitySaved(false)
+    const entity = entities.find((e) => String(e.id) === id)
+    if (entity) {
+      setEntityName(entity.name)
+      setEntityShortName(entity.short_name)
+    }
+  }
+
+  const handleEntitySave = async () => {
+    if (!selectedEntityId) return
+    setEntitySaving(true)
+    setEntitySaved(false)
+    try {
+      await updateEntity(parseInt(selectedEntityId), {
+        name: entityName,
+        short_name: entityShortName,
+      })
+      setEntitySaved(true)
+      await fetchData()
+      setTimeout(() => setEntitySaved(false), 3000)
+    } catch (err) {
+      console.error("Failed to save entity:", err)
+    } finally {
+      setEntitySaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <>
+        <Header title="Settings" />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Loading settings...</span>
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
       <Header title="Settings" />
@@ -63,46 +131,51 @@ export default function SettingsPage() {
               </TabsTrigger>
             </TabsList>
 
+            {/* ── Entity Tab ── */}
             <TabsContent value="entity" className="mt-6 space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Entity Information</CardTitle>
-                  <CardDescription>Configure the entity mandate, vision, and mission statements.</CardDescription>
+                  <CardDescription>View and update entity details.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Select Entity</Label>
+                    <Select value={selectedEntityId} onValueChange={handleEntityChange}>
+                      <SelectTrigger className="w-full sm:w-80">
+                        <SelectValue placeholder="Select an entity" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {entities.map((e) => (
+                          <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Entity Name</Label>
-                      <Input defaultValue="Ministry of Finance" />
+                      <Input
+                        value={entityName}
+                        onChange={(e) => { setEntityName(e.target.value); setEntitySaved(false) }}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label>Reporting Period</Label>
-                      <Select defaultValue="2025-26">
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="2025-26">2025/26</SelectItem>
-                          <SelectItem value="2026-27">2026/27</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Label>Short Name / Abbreviation</Label>
+                      <Input
+                        value={entityShortName}
+                        onChange={(e) => { setEntityShortName(e.target.value); setEntitySaved(false) }}
+                      />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Mandate</Label>
-                    <Textarea defaultValue="To ensure sound management of public finances, formulate fiscal and economic policy, and mobilize domestic and external resources for national development." className="min-h-[80px]" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Vision</Label>
-                    <Textarea defaultValue="A prosperous Zimbabwe through efficient, effective and accountable management of public finances." className="min-h-[60px]" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Mission</Label>
-                    <Textarea defaultValue="To manage public finances efficiently and effectively, and provide financial advice to Government for the benefit of all Zimbabweans." className="min-h-[60px]" />
-                  </div>
-                  <div className="flex justify-end">
-                    <Button className="gap-2">
-                      <Save className="size-4" />
+                  <div className="flex items-center justify-end gap-3">
+                    {entitySaved && (
+                      <span className="flex items-center gap-1.5 text-sm text-success">
+                        <CheckCircle2 className="size-4" /> Saved
+                      </span>
+                    )}
+                    <Button className="gap-2" onClick={handleEntitySave} disabled={entitySaving}>
+                      {entitySaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                       Save Changes
                     </Button>
                   </div>
@@ -110,15 +183,15 @@ export default function SettingsPage() {
               </Card>
             </TabsContent>
 
+            {/* ── Users Tab ── */}
             <TabsContent value="users" className="mt-6 space-y-6">
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-base">User Management</CardTitle>
-                      <CardDescription>Manage users and their role-based access.</CardDescription>
+                      <CardTitle className="text-base">System Users</CardTitle>
+                      <CardDescription>Overview of all users. Manage users from Admin &rarr; User Management.</CardDescription>
                     </div>
-                    <Button size="sm">Add User</Button>
                   </div>
                 </CardHeader>
                 <CardContent className="px-0 pb-0">
@@ -127,36 +200,40 @@ export default function SettingsPage() {
                       <TableRow>
                         <TableHead>User</TableHead>
                         <TableHead>Role</TableHead>
+                        <TableHead>Entity</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {users.map((user) => (
-                        <TableRow key={user.email}>
+                      {users.map((u) => (
+                        <TableRow key={u.id}>
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <Avatar className="size-8">
                                 <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
-                                  {user.name.split(" ").map((n) => n[0]).join("")}
+                                  {u.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
                                 </AvatarFallback>
                               </Avatar>
                               <div>
-                                <span className="font-medium text-foreground">{user.name}</span>
-                                <p className="text-xs text-muted-foreground">{user.email}</p>
+                                <span className="font-medium text-foreground">{u.name}</span>
+                                <p className="text-xs text-muted-foreground">{u.email}</p>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="secondary" className="text-xs">{user.role}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={user.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}>
-                              {user.status}
+                            <Badge variant="secondary" className="text-xs">
+                              {roleLabelMap[u.role] || u.role}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">
-                            <Button variant="ghost" size="sm">Edit</Button>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {u.entity_name || "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={cn(
+                              u.is_active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
+                            )}>
+                              {u.is_active ? "Active" : "Inactive"}
+                            </Badge>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -166,11 +243,12 @@ export default function SettingsPage() {
               </Card>
             </TabsContent>
 
+            {/* ── Scoring Rules Tab ── */}
             <TabsContent value="scoring" className="mt-6 space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Rating Scale Configuration</CardTitle>
-                  <CardDescription>Define the 1-6 rating scale and variance-to-score mapping rules.</CardDescription>
+                  <CardDescription>The 1–6 rating scale and variance-to-score mapping rules used across the system.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -184,7 +262,7 @@ export default function SettingsPage() {
                     </TableHeader>
                     <TableBody>
                       {[
-                        { score: 6, rating: "Excellent", range: ">= 0%", desc: "Target met or exceeded" },
+                        { score: 6, rating: "Excellent", range: "≥ 0%", desc: "Target met or exceeded" },
                         { score: 5, rating: "Good", range: "-1% to -5%", desc: "Slightly below target" },
                         { score: 4, rating: "Satisfactory", range: "-6% to -10%", desc: "Moderately below target" },
                         { score: 3, rating: "Average", range: "-11% to -20%", desc: "Significantly below target" },
@@ -208,18 +286,19 @@ export default function SettingsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Weighted Scoring Formula</CardTitle>
-                  <CardDescription>The system uses the following formula for weighted score calculation.</CardDescription>
+                  <CardDescription>The system uses the following formula for weighted score calculation, aligned with the MDA Evaluation Scoring Template.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="rounded-lg border border-border bg-muted/30 p-4 font-mono text-sm text-foreground">
-                    <p>Weighted Score = Raw Score x Weight</p>
-                    <p className="mt-2 text-muted-foreground">Overall Score = Sum(Weighted Scores) / Sum(Weights)</p>
-                    <p className="mt-2 text-muted-foreground">Annual Score = Average(Q1, Q2, Q3, Q4)</p>
+                  <div className="rounded-lg border border-border bg-muted/30 p-4 font-mono text-sm text-foreground space-y-2">
+                    <p>Weighted Score = Agreed Rating × Weight / 100</p>
+                    <p className="text-muted-foreground">Overall Score = Sum(Weighted Scores) → value on 0–6 scale</p>
+                    <p className="text-muted-foreground">Section Score = Sum(Section Weighted) × 100 / Sum(Section Weights)</p>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
+            {/* ── Notifications Tab ── */}
             <TabsContent value="notifications" className="mt-6 space-y-6">
               <Card>
                 <CardHeader>
