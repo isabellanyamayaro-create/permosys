@@ -41,10 +41,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(me)
     // Redirect based on role
     switch (me.role) {
-      case "ceo":    router.push("/ceo");    break
-      case "entity": router.push("/entity"); break
-      case "admin":  router.push("/");       break
-      default:       router.push("/");
+      case "me":
+      case "admin":
+        router.push("/")
+        break
+      case "entity":
+        router.push("/entity")
+        break
+      default:
+        router.push("/")
     }
   }, [router])
 

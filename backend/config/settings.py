@@ -141,6 +141,8 @@ CORS_ALLOWED_ORIGINS = list(filter(None, [
     os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/"),
     *([o.rstrip("/") for o in _extra_origins.split(",") if o] if _extra_origins else []),
 ]))
+if DEBUG and "http://localhost:3000" not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS.append("http://localhost:3000")
 CORS_ALLOW_CREDENTIALS = True
 
 # â”€â”€ Internationalisation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -157,3 +159,12 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Email (SMTP) settings — configured via environment variables
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)

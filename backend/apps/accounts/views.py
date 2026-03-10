@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
+from apps.email_utils import send_system_email
 from .serializers import UserSerializer, CreateUserSerializer, ChangePasswordSerializer
 from .permissions import IsAdmin
 
@@ -29,6 +30,20 @@ class UserListCreateView(generics.ListCreateAPIView):
             return CreateUserSerializer
         return UserSerializer
 
+    def perform_create(self, serializer):
+        user = serializer.save()
+        send_system_email(
+            subject="Your PMS account has been created",
+            message=(
+                f"Hello {user.name},\n\n"
+                "Your account for the Performance Management System is ready.\n"
+                f"Login email: {user.email}\n"
+                f"Role: {user.role}\n\n"
+                "If you did not expect this account, contact the system administrator."
+            ),
+            recipients=[user.email],
+        )
+
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset           = User.objects.all().select_related("entity")
@@ -46,6 +61,15 @@ def change_password(request):
         return Response({"detail": "Old password is incorrect."}, status=status.HTTP_400_BAD_REQUEST)
     user.set_password(serializer.validated_data["new_password"])
     user.save()
+    send_system_email(
+        subject="Your PMS password was changed",
+        message=(
+            f"Hello {user.name},\n\n"
+            "This is a confirmation that your password was changed successfully.\n"
+            "If you did not perform this action, contact an administrator immediately."
+        ),
+        recipients=[user.email],
+    )
     return Response({"detail": "Password changed successfully."})
 
 

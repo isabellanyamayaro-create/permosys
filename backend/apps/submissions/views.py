@@ -1,16 +1,20 @@
 from datetime import date
+from django.contrib.auth import get_user_model
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.accounts.permissions import IsEntity, IsAnyAuthenticated
 from apps.audit.models import AuditLog
+from apps.email_utils import send_system_email
 from .models import Submission, KpiActual, SectionScore
 from .serializers import (
     SubmissionSerializer,
     SubmissionCreateSerializer,
     ApprovalActionSerializer,
 )
+
+User = get_user_model()
 
 
 def _log(action: str, user, target: str, details: str = ""):
@@ -54,6 +58,19 @@ class SubmissionListCreateView(generics.ListCreateAPIView):
         user = self.request.user
         submission = serializer.save()
         _log("Submission Created", user, str(submission))
+
+        reviewers = User.objects.filter(role__in=["me", "admin"], is_active=True).values_list("email", flat=True)
+        send_system_email(
+            subject=f"New submission: {submission.entity.name} {submission.quarter} {submission.period}",
+            message=(
+                f"A new submission was created by {user.name} ({user.email}).\n"
+                f"Entity: {submission.entity.name}\n"
+                f"Quarter: {submission.quarter}\n"
+                f"Period: {submission.period}\n"
+                f"Status: {submission.status}"
+            ),
+            recipients=reviewers,
+        )
 
 
 class SubmissionDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -141,11 +158,45 @@ def approve_or_reject(request, pk):
         submission.status = Submission.Status.APPROVED
         submission.save()
         _log("Submission Approved", user, str(submission), reviewer_comment)
+
+        entity_users = User.objects.filter(
+            role="entity",
+            entity=submission.entity,
+            is_active=True,
+        ).values_list("email", flat=True)
+        send_system_email(
+            subject=f"Submission approved: {submission.entity.name} {submission.quarter} {submission.period}",
+            message=(
+                f"Your submission has been approved by {user.name}.\n"
+                f"Entity: {submission.entity.name}\n"
+                f"Quarter: {submission.quarter}\n"
+                f"Period: {submission.period}\n"
+                f"Reviewer comment: {reviewer_comment or 'N/A'}"
+            ),
+            recipients=entity_users,
+        )
         return Response({"detail": "Submission approved."})
     else:
         submission.status = Submission.Status.REJECTED
         submission.save()
         _log("Submission Rejected", user, str(submission), reviewer_comment)
+
+        entity_users = User.objects.filter(
+            role="entity",
+            entity=submission.entity,
+            is_active=True,
+        ).values_list("email", flat=True)
+        send_system_email(
+            subject=f"Submission rejected: {submission.entity.name} {submission.quarter} {submission.period}",
+            message=(
+                f"Your submission has been rejected by {user.name}.\n"
+                f"Entity: {submission.entity.name}\n"
+                f"Quarter: {submission.quarter}\n"
+                f"Period: {submission.period}\n"
+                f"Reviewer comment: {reviewer_comment or 'N/A'}"
+            ),
+            recipients=entity_users,
+        )
         return Response({"detail": "Submission rejected."})
 
 
